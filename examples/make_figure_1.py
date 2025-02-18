@@ -403,7 +403,7 @@ import matplotlib.pyplot as plt
 colors = [plot_ts.COLORS_COVSPECTRUM[var] for var in variants_investigated]
 
 # Create the figure and subplots
-fig, axes = plt.subplots(3, 2, figsize=(10, 5))
+fig, axes = plt.subplots(3, 2, figsize=(10, 5), sharey="none")
 axes = axes.flatten()
 for i in range(6):
     plot_city(axes[i], i)  # Assuming plot_city modifies the axes
@@ -422,6 +422,19 @@ fig.legend(
     bbox_to_anchor=(1, 0.5),  # Position it to the right of the figure
     title="Variants",
 )
+
+axes[0].set_title("Zurich")
+axes[1].set_title("Altenrhein")
+axes[2].set_title("Laupen")
+axes[3].set_title("Lugano")
+axes[4].set_title("Chur")
+axes[5].set_title("Geneva")
+
+axes[0].set_ylabel("")
+axes[1].set_ylabel("")
+axes[3].set_ylabel("")
+axes[4].set_ylabel("")
+axes[5].set_ylabel("")
 
 # Adjust the layout to make space for the legend
 
