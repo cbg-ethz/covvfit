@@ -471,7 +471,10 @@ standerr_relgrowths = qm.get_standard_errors(covariance_scaled, jacob)
 relgrowths_confint = qm.get_confidence_intervals(
     make_relative_growths(theta_star), standerr_relgrowths, 0.95
 )
+# -
 
+
+relgrowths_confint[0].shape
 
 # +
 import numpy as np
