@@ -41,6 +41,7 @@ pyright = "^1.1.333"
 mkdocs-material = "^9.5.50"
 mkdocstrings = {extras = ["python-legacy"], version = "^0.21.2"}
 mkdocs = "^1.5.3"
+mkdocs-autorefs = "^1.4.0"
 jupytext = "^1.16.1"
 jupyterlab = "^4.1.6"
 
