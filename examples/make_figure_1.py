@@ -243,7 +243,7 @@ solution = qm.jax_multistart_minimize(loss, theta0, n_starts=1)
 theta_star = solution.x  # The maximum quasilikelihood estimate
 
 print(
-    f"Relative growth advantages: \n",
+    f"Relative fitness advantages: \n",
     qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
 )
 # -
@@ -281,7 +281,7 @@ confints_estimates = qm.get_confidence_intervals(
 )
 
 
-print("\n\nRelative growth advantages:")
+print("\n\nRelative fitness advantages:")
 for variant, m, l, u in zip(
     variants_effective[1:],
     (
@@ -377,12 +377,21 @@ def plot_city(ax, i: int) -> None:
     #     ax, ts_pred_lst[i], remove_0th(ys_pred[i]), linestyle="--", alpha=0.3
     # )
 
-    # format axes and title
-    def format_date(x, pos):
-        return plot_ts.num_to_date(x, date_min=start_date)
+    # Ensure that ticks appear only at January 1st of each year
+    ax.xaxis.set_major_locator(mdates.YearLocator())  # Major ticks at each new year
 
+    # Define a function to format the date labels
+    def format_date(x, pos):
+        """Convert numeric x-axis values to a date and return only the year (YYYY)."""
+        return plot_ts.num_to_date(x, date_min=start_date, fmt="%Y")  # Year only
+
+    # Apply the custom formatter
     date_formatter = ticker.FuncFormatter(format_date)
-    ax.xaxis.set_major_formatter(date_formatter)
+    ax.xaxis.set_major_formatter(date_formatter)  # Use year-only formatting
+
+    # Ensure x-axis values are treated as dates
+    ax.xaxis_date()
+
     tick_positions = [0, 0.5, 1]
     tick_labels = ["0%", "50%", "100%"]
     ax.set_yticks(tick_positions)
@@ -511,7 +520,7 @@ fitness_df.iloc[14:, 13] = np.nan
 fitness_df = fitness_df.iloc[1:, 1:]
 
 ax = sns.heatmap(fitness_df, cmap="Reds", annot=True, fmt=".0f", cbar=True)
-ax.set_title("Weekly Growth Advantage (%)")
+ax.set_title("Weekly Fitness Advantage (%)")
 
 
 # +
@@ -684,7 +693,7 @@ fitness_df.iloc[14:, 13] = np.nan
 fitness_df = fitness_df.iloc[1:, 1:]
 
 ax = sns.heatmap(fitness_df, cmap="Reds", annot=True, fmt=".0f", cbar=True)
-ax.set_title("Discrete Time Model Weekly Growth Advantage (%)")
+ax.set_title("Discrete Time Model Weekly Fitness Advantage (%)")
 
 # -
 
