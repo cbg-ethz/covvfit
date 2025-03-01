@@ -1,4 +1,5 @@
 import dataclasses
+from functools import partial
 
 import jax
 import jax.numpy as jnp
@@ -44,6 +45,23 @@ def log1mexp(x: Float[Array, " *shape"]) -> Float[Array, " *shape"]:
     return jnp.where(x > -0.693, jnp.log(-jnp.expm1(x)), jnp.log1p(-jnp.exp(x)))
 
 
+def _log_cumulative_sum_exp_1d(x):
+    """Returns a 1D array 'out' where out[i] = logsumexp of x[:i+1]
+    (prefix sums in log-space)
+    """
+    neg_inf = jnp.finfo(x.dtype).min
+
+    def scan_fn(carry, current):
+        # carry = logsumexp so far, current = x[i]
+        new_carry = logsumexp(jnp.stack([carry, current]))
+        return new_carry, new_carry
+
+    init = neg_inf  # log(0)
+    _, out = jax.lax.scan(scan_fn, init, x)
+    return out
+
+
+@partial(jax.jit, static_argnames=["axis"])
 def logsumexp_excluding_column(
     y: Float[Array, "*batch variants"],
     axis: int = -1,
@@ -61,34 +79,37 @@ def logsumexp_excluding_column(
         An array of the same shape as `y`, whose element at index i along
         `axis` is the log-sum-exp of all other entries (j != i).
     """
-    # Number of elements along the specified axis
-    n = y.shape[axis]
-    dtype = y.dtype
+    neg_inf = jnp.finfo(y.dtype).min
 
-    # This function will exclude the i-th entry along `axis` by masking it.
-    def exclude_index(i: int) -> jnp.ndarray:
-        # Create a 1D mask of length n: True for j != i, False for j == i
-        mask_1d = jnp.arange(n) != i
+    # Move 'axis' to the last dimension for convenience
+    y = jnp.moveaxis(y, axis, -1)  # shape: [..., n]
+    *batch_dims, n = y.shape
 
-        # Reshape it so it can broadcast along the desired `axis`
-        # e.g., if y.ndim=3 and axis=1, shape might be (1, n, 1)
-        mask_shape = [1] * y.ndim
-        mask_shape[axis] = n
-        mask_1d = mask_1d.reshape(mask_shape)
+    # Flatten the leading dimensions so we can vmap over them
+    y_2d = y.reshape(-1, n)  # shape: (batch_size, n)
 
-        # Replace the excluded positions with -∞
-        masked_y = jnp.where(mask_1d, y, jnp.finfo(dtype).min)
+    # Compute prefix and suffix log-cumulative-sums along the last dimension
+    prefix = jax.vmap(_log_cumulative_sum_exp_1d)(y_2d)
+    # suffix: reverse each row, compute prefix, then reverse result
+    suffix = jax.vmap(lambda row: jnp.flip(_log_cumulative_sum_exp_1d(jnp.flip(row))))(
+        y_2d
+    )
+    # Now:
+    #   prefix[i] = logsumexp( y[:i+1] )
+    #   suffix[i] = logsumexp( y[i:] )
 
-        # Compute logsumexp over the masked array along `axis`
-        return logsumexp(masked_y, axis=axis)
+    # We want the log-sum-exp excluding y[i]. This is logsumexp( prefix[i-1], suffix[i+1] ).
+    # Handle boundary by padding prefix and suffix with -inf where needed.
+    prefix_left = jnp.pad(prefix[:, :-1], ((0, 0), (1, 0)), constant_values=neg_inf)
+    suffix_right = jnp.pad(suffix[:, 1:], ((0, 0), (0, 1)), constant_values=neg_inf)
 
-    # Vectorize over each index (0...n-1) in the chosen axis
-    # This produces a new array with shape=(n, [all the other axes]).
-    results = jax.vmap(exclude_index)(jnp.arange(n))
+    # Combine along a new axis, then take logsumexp across that axis
+    out_2d = logsumexp(jnp.stack([prefix_left, suffix_right], axis=-1), axis=-1)
+    out = out_2d.reshape(*batch_dims, n)
 
-    # Move the new axis (of length n) back to `axis`, matching the original shape of y
-    results = jnp.moveaxis(results, 0, axis)
-    return results
+    # Move the excluded axis back to its original position
+    out = jnp.moveaxis(out, -1, axis)
+    return out
 
 
 @dataclasses.dataclass
