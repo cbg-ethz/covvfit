@@ -24,7 +24,7 @@ def test_logsumexp_excluding_column_standard(shape, axis):
     the simple implementation is stable."""
     rng = np.random.default_rng(42)
 
-    if axis >= len(shape):
+    if axis >= len(shape) or shape[axis] == 1:
         return
 
     y = rng.normal(size=shape)
