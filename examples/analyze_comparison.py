@@ -590,6 +590,22 @@ def make_plot(
     for ax in axes:
         ax.set_xlim(x_min, x_max)
 
+    clinical_totals = clinical_totals[clinical_totals.index >= x_min]
+    clinical_totals = clinical_totals[clinical_totals.index <= x_max]
+
+    # Print summary statistics
+    print("Clinical Totals Summary:")
+    print(f"  Min:    {clinical_totals.min()}")
+    print(f"  Max:    {clinical_totals.max()}")
+    print(f"  Mean:   {clinical_totals.mean():.2f}")
+    print(f"  Median: {clinical_totals.median()}")
+
+    print("\nWastewater Totals Summary:")
+    print(f"  Min:    {ww_totals.min()}")
+    print(f"  Max:    {ww_totals.max()}")
+    print(f"  Mean:   {ww_totals.mean():.2f}")
+    print(f"  Median: {ww_totals.median()}")
+
 
 # %%
 # Plot

@@ -264,6 +264,7 @@ covariance = qm.get_covariance(loss, theta_star)
 overdispersion_tuple = qm.compute_overdispersion(
     observed=ys_effective,
     predicted=ys_fitted,
+    epsilon=1e-3,
 )
 
 overdisp_fixed = overdispersion_tuple.overall
@@ -307,6 +308,8 @@ for variant, m, l, u in zip(
 # We can propagate this uncertainty to the observed values. Let's generate confidence bands around the fitted lines and predict the future behaviour.
 
 # +
+# %%time
+
 ys_fitted_confint = qm.get_confidence_bands_logit(
     theta_star,
     n_variants=n_variants_effective,
@@ -727,12 +730,15 @@ axes[0].set_xscale("log")
 # axes[0].set_yscale('log')
 
 
-# Cities vs Epsilon
-for city_idx in range(cities_res.shape[1]):
-    axes[0].plot(epsilons, cities_res[:, city_idx], label=f"{cities[city_idx]}")
-axes[0].legend()
+# # Cities vs Epsilon
+# for city_idx in range(cities_res.shape[1]):
+#     axes[0].plot(epsilons, cities_res[:, city_idx], label=f"{cities[city_idx]}")
+# axes[0].legend()
 
-axes[0].set_ylim(0.1, 0.25)
+axes[0].set_ylim(0.1, 0.4)
 
 plt.tight_layout()
 plt.show()
+# -
+
+0.04 / 0.16
