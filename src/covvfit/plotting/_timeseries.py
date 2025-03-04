@@ -84,6 +84,12 @@ class _MonthStartLocator(ticker.Locator):
         self.start_date = pd.to_datetime(start_date)
         self.time_unit = time_unit
 
+        # See the todo item in the `__call__` method
+        if time_unit != "D":
+            raise NotImplementedError(
+                "Currently only days (time_unit='D') are supported."
+            )
+
     def __call__(self):
         """
         Return the list of tick positions (as numeric days since start_date)
@@ -108,6 +114,7 @@ class _MonthStartLocator(ticker.Locator):
         ticks = []
         current = first_of_minmonth
         while current <= dt_max:
+            # TODO(Pawel): This depends on the time unit!
             offset_days = (current - self.start_date).days
             ticks.append(offset_days)
             current += pd.offsets.MonthBegin(1)
