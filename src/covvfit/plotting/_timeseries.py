@@ -31,9 +31,9 @@ COLORS_COVSPECTRUM: dict[Variant, Color] = {
     "BA.2.86": "#FF20E0",
     # TODO(Pawel, David): Use consistent colors with Covspectrum
     "JN.1": "#00e9ff",  # improv
-    "KP.2": "#D16666",  # improv
-    "KP.3": "#66A366",  # improv
-    "XEC": "#A366A3",  # improv
+    "KP.2": "#876566",
+    "KP.3": "#331eee",
+    "XEC": "#a2a626",
     "undetermined": "#969696",
 }
 
@@ -119,7 +119,7 @@ class _MonthStartLocator(ticker.Locator):
             ticks.append(offset_days)
             current += pd.offsets.MonthBegin(1)
 
-        return ticks
+        return ticks[::3]
 
     def tick_values(self, vmin, vmax):
         # Matplotlib may call tick_values directly; just reuse __call__()
@@ -131,7 +131,7 @@ class AdjustXAxisForTime:
         self,
         time0: str,
         *,
-        fmt="%b. '%y",
+        fmt="%b '%y",
         time_unit: str = "D",
     ) -> None:
         """Adjusts the X ticks, so that the ticks
@@ -308,4 +308,5 @@ def plot_confidence_bands(
             alpha=alpha,
             label=label,
             **kwargs,
+            edgecolor=None,
         )
