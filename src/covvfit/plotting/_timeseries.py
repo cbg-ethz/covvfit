@@ -3,6 +3,7 @@
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 from jaxtyping import Array, Float
@@ -63,6 +64,84 @@ def make_legend(colors: list[Color], variants: list[Variant]) -> list[mpatches.P
     ]
 
     return handles
+
+
+class _MonthStartLocator(ticker.Locator):
+    """
+    A custom Locator that, given a reference 'start_date', places ticks on
+    the first day of each month within the data's visible range.
+    """
+
+    def __init__(self, start_date: str, time_unit: str) -> None:
+        """
+
+        Args:
+            start_date: date corresponding to `value=0` timepoint, e.g., "2025-02-01"
+            time_unit: time unit, e.g., "D" for days
+        """
+        super().__init__()
+        # Store the reference start_date as a Timestamp
+        self.start_date = pd.to_datetime(start_date)
+        self.time_unit = time_unit
+
+    def __call__(self):
+        """
+        Return the list of tick positions (as numeric days since start_date)
+        that fall on the 1st of each month in the current view interval.
+        """
+        # Determine the min and max of the current axis range (in numeric days)
+        vmin, vmax = self.axis.get_view_interval()
+        if vmin > vmax:
+            vmin, vmax = vmax, vmin
+
+        # Convert these numeric offsets to actual datetime objects
+        dt_min = self.start_date + pd.to_timedelta(vmin, self.time_unit)
+        dt_max = self.start_date + pd.to_timedelta(vmax, self.time_unit)
+
+        # Find the 1st-of-the-month that is >= dt_min
+        first_of_minmonth = pd.to_datetime(f"{dt_min.year}-{dt_min.month}-01")
+        if first_of_minmonth < dt_min:
+            # if dt_min is past that 1st, jump to next month
+            first_of_minmonth += pd.offsets.MonthBegin(1)
+
+        # Collect offsets for each 1st-of-the-month until we exceed dt_max
+        ticks = []
+        current = first_of_minmonth
+        while current <= dt_max:
+            offset_days = (current - self.start_date).days
+            ticks.append(offset_days)
+            current += pd.offsets.MonthBegin(1)
+
+        return ticks
+
+    def tick_values(self, vmin, vmax):
+        # Matplotlib may call tick_values directly; just reuse __call__()
+        return self.__call__()
+
+
+class AdjustXAxisForTime:
+    def __init__(
+        self,
+        start_date: str,
+        fmt="%b. '%y",
+        time_unit: str = "D",
+    ) -> None:
+        self.start_date = start_date
+        self.fmt = fmt
+        self.time_unit = time_unit
+
+    def _num_to_date(self, num: pd.Series | Float[Array, " timepoints"]) -> pd.Series:
+        """Convert days number into a date format"""
+        date = pd.to_datetime(self.start_date) + pd.to_timedelta(num, self.time_unit)
+        return date.strftime(self.fmt)
+
+    def __call__(self, ax: plt.Axes) -> None:
+        ax.xaxis.set_major_locator(
+            _MonthStartLocator(start_date=self.start_date, time_unit=self.time_unit)
+        )
+        ax.xaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda x, pos: self._num_to_date(x))
+        )
 
 
 def num_to_date(
