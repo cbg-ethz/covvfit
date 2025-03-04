@@ -329,14 +329,27 @@ def infer(
         theta_star, standard_errors_estimates, confidence_level=0.95
     )
 
-    pprint("\n\nRelative growth advantages:")
+    pprint("\n\nRelative growth advantages (per day):")
     for variant, m, low, up in zip(
         variants_effective[1:],
         qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
         qm.get_relative_growths(confints_estimates[0], n_variants=n_variants_effective),
         qm.get_relative_growths(confints_estimates[1], n_variants=n_variants_effective),
     ):
-        pprint(f"  {variant}: {float(m):.2f} ({float(low):.2f} – {float(up):.2f})")
+        pprint(
+            f"  {variant}: {float(m)/ time_scaler.time_unit :.4f} ({float(low) / time_scaler.time_unit:.4f} – {float(up) / time_scaler.time_unit :.4f})"
+        )
+
+    pprint("\n\nRelative growth advantages (per week):")
+    for variant, m, low, up in zip(
+        variants_effective[1:],
+        qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
+        qm.get_relative_growths(confints_estimates[0], n_variants=n_variants_effective),
+        qm.get_relative_growths(confints_estimates[1], n_variants=n_variants_effective),
+    ):
+        pprint(
+            f"  {variant}: {DAYS_IN_A_WEEK * float(m)/ time_scaler.time_unit :.4f} ({DAYS_IN_A_WEEK * float(low) / time_scaler.time_unit:.4f} – {DAYS_IN_A_WEEK * float(up) / time_scaler.time_unit :.4f})"
+        )
 
     # Generate predictions
     ys_fitted_confint = qm.get_confidence_bands_logit(
@@ -378,6 +391,7 @@ def infer(
         bottom=plot_dimensions.bottom,
         left=plot_dimensions.left,
         right=plot_dimensions.right,
+        sharex=True,
     )
 
     def plot_city(ax, i: int) -> None:
