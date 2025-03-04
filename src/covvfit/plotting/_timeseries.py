@@ -129,11 +129,21 @@ class _MonthStartLocator(ticker.Locator):
 class AdjustXAxisForTime:
     def __init__(
         self,
-        start_date: str,
+        time0: str,
+        *,
         fmt="%b. '%y",
         time_unit: str = "D",
     ) -> None:
-        self.start_date = start_date
+        """Adjusts the X ticks, so that the ticks
+        are placed at the first day of each month.
+
+        Args:
+            time0: date corresponding to value 0 on the x axis
+            time_unit: the time unit of the values on the x axis
+                (usually days, so use `time_unit="D"`)
+            fmt: format string to create the tick labels
+        """
+        self.start_date = time0
         self.fmt = fmt
         self.time_unit = time_unit
 

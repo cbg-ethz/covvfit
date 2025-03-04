@@ -432,8 +432,8 @@ def infer(
             alpha=0.3,
         )
 
-        adjust_axis = plot_ts.AdjustXAxisForTime(start_date=start_date)
-        adjust_axis(ax)
+        adjust_axis_fn = plot_ts.AdjustXAxisForTime(start_date)
+        adjust_axis_fn(ax)
 
         tick_positions = [0, 0.5, 1]
         tick_labels = ["0%", "50%", "100%"]
