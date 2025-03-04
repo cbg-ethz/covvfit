@@ -270,12 +270,7 @@ def plot_city(ax, i: int) -> None:
         ax, ts_pred_lst[i], remove_0th(ys_pred[i]), linestyle="--", alpha=0.3
     )
 
-    # format axes and title
-    def format_date(x, pos):
-        return plot_ts.num_to_date(x, date_min=start_date)
-
-    date_formatter = ticker.FuncFormatter(format_date)
-    ax.xaxis.set_major_formatter(date_formatter)
+    plot_ts.AdjustXAxisForTime(start_date)(ax)
     tick_positions = [0, 0.5, 1]
     tick_labels = ["0%", "50%", "100%"]
     ax.set_yticks(tick_positions)
@@ -455,12 +450,7 @@ def plot_predictions(
         ax, ts_pred_lst[i], remove_0th(predicted_line[i]), linestyle="--", alpha=0.3
     )
 
-    # format axes and title
-    def format_date(x, pos):
-        return plot_ts.num_to_date(x, date_min=start_date)
-
-    date_formatter = ticker.FuncFormatter(format_date)
-    ax.xaxis.set_major_formatter(date_formatter)
+    plot_ts.AdjustXAxisForTime(start_date)(ax)
     tick_positions = [0, 0.5, 1]
     tick_labels = ["0%", "50%", "100%"]
     ax.set_yticks(tick_positions)
