@@ -5,7 +5,6 @@ from typing import Annotated, NamedTuple, Optional
 import jax
 import jax.numpy as jnp
 import matplotlib.patches as mpatches
-import matplotlib.ticker as ticker
 import pandas as pd
 import pydantic
 import typer
@@ -433,12 +432,9 @@ def infer(
             alpha=0.3,
         )
 
-        # format axes and title
-        def format_date(x, pos):
-            return plot_ts.num_to_date(x, date_min=start_date)
+        adjust_axis_fn = plot_ts.AdjustXAxisForTime(start_date)
+        adjust_axis_fn(ax)
 
-        date_formatter = ticker.FuncFormatter(format_date)
-        ax.xaxis.set_major_formatter(date_formatter)
         tick_positions = [0, 0.5, 1]
         tick_labels = ["0%", "50%", "100%"]
         ax.set_yticks(tick_positions)
