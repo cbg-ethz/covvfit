@@ -1,4 +1,5 @@
 """Script running Covvfit inference on the data."""
+import warnings
 from pathlib import Path
 from typing import Annotated, NamedTuple, Optional
 
@@ -117,31 +118,45 @@ class PlotDimensions(pydantic.BaseModel):
     panel_height: float = 1.5
     dpi: int = 350
 
-    wspace: float = 1.0
-    hspace: float = 0.5
+    wspace: float = pydantic.Field(
+        default=1.0, help="Horizontal (width) spacing between figure panels."
+    )
+    hspace: float = pydantic.Field(
+        default=0.5, help="Vertical (height) spacing between figure panels."
+    )
 
-    left: float = 1.0
-    right: float = 1.5
-    top: float = 0.7
-    bottom: float = 0.5
+    left: float = pydantic.Field(default=1.0, help="Left margin in the figure.")
+    right: float = pydantic.Field(default=1.5, help="Right margin in the figure.")
+    top: float = pydantic.Field(default=0.7, help="Top margin in the figure.")
+    bottom: float = pydantic.Field(default=0.5, help="Bottom margin in the figure.")
 
 
 class PlotSettings(pydantic.BaseModel):
     dimensions: PlotDimensions = pydantic.Field(default_factory=PlotDimensions)
     prediction: PredictionRegion = pydantic.Field(default_factory=PredictionRegion)
     variant_colors: dict[str, str] = pydantic.Field(
-        default_factory=lambda: plot_ts.COLORS_COVSPECTRUM
+        default_factory=lambda: plot_ts.COLORS_COVSPECTRUM,
+        help="Dictionary mapping variants to colors in the plot.",
+    )
+    time_spacing: pydantic.conint(ge=1) = pydantic.Field(
+        default=1, help="Spacing between ticks on the time axis (in months)."
     )
 
 
 class Config(pydantic.BaseModel):
-    variants: list[str] = pydantic.Field(default_factory=lambda: [])
-    plot: PlotSettings = pydantic.Field(default_factory=PlotSettings)
+    variants: list[str] = pydantic.Field(
+        default_factory=lambda: [],
+        help="List of variants to be included in the analysis.",
+    )
+    plot: PlotSettings = pydantic.Field(
+        default_factory=PlotSettings, help="Plot settings."
+    )
 
 
 def _parse_config(
     config_path: Optional[str],
     variants: Optional[list[str]],
+    time_spacing: Optional[int],
 ) -> Config:
     if config_path is None:
         config = Config()
@@ -152,6 +167,9 @@ def _parse_config(
 
     if variants is not None:
         config.variants = variants
+
+    if time_spacing is not None:
+        config.plot.time_spacing = time_spacing
 
     if len(config.variants) == 0:
         raise ValueError("No variants have been specified.")
@@ -195,6 +213,13 @@ def infer(
             help="Number of future days for which abundance prediction should be generated",
         ),
     ] = 60,
+    time_spacing: Annotated[
+        Optional[int],
+        typer.Option(
+            "--time-spacing",
+            help="Spacing between ticks on the time axis in months",
+        ),
+    ] = None,
     variant_col: Annotated[
         str,
         typer.Option(
@@ -222,16 +247,32 @@ def infer(
         Optional[str],
         typer.Option("--matplotlib-backend", help="Matplotlib backend to use"),
     ] = None,
+    overwrite_output: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite-output",
+            help="Allows overwriting the output directory, if it already exists. Note: this may result in unintented loss of data.",
+        ),
+    ] = False,
 ) -> None:
     """Runs growth advantage inference."""
     _set_matplotlib_backend(matplotlib_backend)
+
+    # Ignore warnings with JAX converting arrays from 64-bit to 32-bit
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Explicitly requested dtype float64 requested in zeros.*",
+        category=UserWarning,
+    )
 
     if var is None and config is None:
         raise ValueError(
             "The variant names are not specified. Use `--config` argument or `-v` to specify them."
         )
 
-    config: Config = _parse_config(config_path=config, variants=var)
+    config: Config = _parse_config(
+        config_path=config, variants=var, time_spacing=time_spacing
+    )
 
     variants_investigated = config.variants
 
@@ -248,7 +289,7 @@ def infer(
     )
 
     output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=overwrite_output)
 
     def pprint(message):
         with open(output / "log.txt", "a") as file:
@@ -329,14 +370,27 @@ def infer(
         theta_star, standard_errors_estimates, confidence_level=0.95
     )
 
-    pprint("\n\nRelative growth advantages:")
+    pprint("\n\nRelative growth advantages (per day):")
     for variant, m, low, up in zip(
         variants_effective[1:],
         qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
         qm.get_relative_growths(confints_estimates[0], n_variants=n_variants_effective),
         qm.get_relative_growths(confints_estimates[1], n_variants=n_variants_effective),
     ):
-        pprint(f"  {variant}: {float(m):.2f} ({float(low):.2f} – {float(up):.2f})")
+        pprint(
+            f"  {variant}: {float(m)/ time_scaler.time_unit :.4f} ({float(low) / time_scaler.time_unit:.4f} – {float(up) / time_scaler.time_unit :.4f})"
+        )
+
+    pprint("\n\nRelative growth advantages (per week):")
+    for variant, m, low, up in zip(
+        variants_effective[1:],
+        qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
+        qm.get_relative_growths(confints_estimates[0], n_variants=n_variants_effective),
+        qm.get_relative_growths(confints_estimates[1], n_variants=n_variants_effective),
+    ):
+        pprint(
+            f"  {variant}: {DAYS_IN_A_WEEK * float(m)/ time_scaler.time_unit :.4f} ({DAYS_IN_A_WEEK * float(low) / time_scaler.time_unit:.4f} – {DAYS_IN_A_WEEK * float(up) / time_scaler.time_unit :.4f})"
+        )
 
     # Generate predictions
     ys_fitted_confint = qm.get_confidence_bands_logit(
@@ -364,7 +418,6 @@ def infer(
     )
 
     # Create a plot
-
     colors = [config.plot.variant_colors[var] for var in variants_investigated]
 
     plot_dimensions = config.plot.dimensions
@@ -378,6 +431,7 @@ def infer(
         bottom=plot_dimensions.bottom,
         left=plot_dimensions.left,
         right=plot_dimensions.right,
+        sharex=True,
     )
 
     def plot_city(ax, i: int) -> None:
@@ -432,7 +486,9 @@ def infer(
             alpha=0.3,
         )
 
-        adjust_axis_fn = plot_ts.AdjustXAxisForTime(start_date)
+        adjust_axis_fn = plot_ts.AdjustXAxisForTime(
+            start_date, spacing_months=config.plot.time_spacing
+        )
         adjust_axis_fn(ax)
 
         tick_positions = [0, 0.5, 1]
