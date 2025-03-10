@@ -46,6 +46,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.lines as mlines
+import matplotlib.dates as mdates
 
 
 # %%
@@ -199,6 +200,27 @@ plt.rcParams["figure.dpi"] = 300
 # plt.show()
 
 
+# %% jupyter={"outputs_hidden": true}
+pairwise_res = np.load(
+    "../workflows/compare_clinical/results/config_ba1ba2/consolidated_pairwise_wastewater_results.npz"
+)
+pairwise_differences = pairwise_res[
+    "pairwise_diffs"
+]  # Shape: (time, variants, variants)
+confidence_intervals_lower = pairwise_res[
+    "relgrowths_confint_lower"
+]  # Shape: (time, variants, variants)
+confidence_intervals_upper = pairwise_res[
+    "relgrowths_confint_upper"
+]  # Shape: (time, variants, variants)
+time_points = pairwise_res["dates"]  # Shape: (time,)
+
+pairwise_differences[np.where(time_points == "2022-02-21")[0], 1, 0]
+
+plt.plot(pd.to_datetime(time_points), pairwise_differences[:, 1, 0])
+plt.plot(pd.to_datetime(time_points), confidence_intervals_lower[:, 1, 0])
+plt.plot(pd.to_datetime(time_points), confidence_intervals_upper[:, 1, 0])
+
 # %%
 import yaml
 import pandas as pd
@@ -273,7 +295,7 @@ def load_data(folder, divisions, variants_evaluated, reference_variant):
     )
 
     # Normalize wastewater and clinical solutions
-    for i in range(len(config["variants_investigated"])):
+    for i in range(len(config_file["variants_investigated"])):
         wastewater_df[f"solution_{i}_normalized"] = (
             wastewater_df[f"solution_{i}"] / wastewater_df["t_max"]
         )
@@ -312,6 +334,14 @@ def load_data(folder, divisions, variants_evaluated, reference_variant):
     # Sort clin_freq by date
     clin_freq = clin_freq.sort_values(by="date")
 
+    # load pairwise res
+    pairwise_ww_res = np.load(
+        f"../workflows/compare_clinical/results/{folder}/consolidated_pairwise_wastewater_results.npz"
+    )
+    pairwise_clin_res = np.load(
+        f"../workflows/compare_clinical/results/{folder}/consolidated_pairwise_clinical_results.npz"
+    )
+
     return {
         "config": config_file,
         "grouped_ww_data": grouped_ww_data,
@@ -324,8 +354,13 @@ def load_data(folder, divisions, variants_evaluated, reference_variant):
         "x_min": x_min,
         "x_max": x_max,
         "merged_ww_data": merged_ww_data,
+        "pairwise_ww_res": pairwise_ww_res,
+        "pairwise_clin_res": pairwise_clin_res,
     }
 
+
+# %%
+1
 
 # %%
 
@@ -343,6 +378,8 @@ def make_plot(
     x_min,
     x_max,
     merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
 ):
     colors_covsp = plot_ts.COLORS_COVSPECTRUM
     ax = axes[1]
@@ -362,18 +399,14 @@ def make_plot(
             linestyle="-",
         )
         ax.fill_between(
-            wastewater_df["end_date"],
-            (
-                wastewater_df[f"confint_lower_{var_idx}_normalized"]
-                - wastewater_df[f"solution_{variants_reference_index}_normalized"]
-            )
-            * 7
+            pd.to_datetime(pairwise_ww_res["dates"]),
+            pairwise_ww_res["relgrowths_confint_lower"][
+                :, var_idx + 1, variants_reference_index + 1
+            ]
             * 100,
-            (
-                wastewater_df[f"confint_upper_{var_idx}_normalized"]
-                - wastewater_df[f"solution_{variants_reference_index}_normalized"]
-            )
-            * 7
+            pairwise_ww_res["relgrowths_confint_upper"][
+                :, var_idx + 1, variants_reference_index + 1
+            ]
             * 100,
             color=colors_covsp[variant.rstrip("*")],
             alpha=0.2,  # Transparency for the shaded area
@@ -410,18 +443,14 @@ def make_plot(
             linestyle="--",
         )
         ax.fill_between(
-            clinical_df["end_date"],
-            (
-                clinical_df[f"confint_lower_{var_idx}_normalized"]
-                - clinical_df[f"solution_{variants_reference_index}_normalized"]
-            )
-            * 7
+            pd.to_datetime(pairwise_clin_res["dates"]),
+            pairwise_clin_res["relgrowths_confint_lower"][
+                :, var_idx + 1, variants_reference_index + 1
+            ]
             * 100,
-            (
-                clinical_df[f"confint_upper_{var_idx}_normalized"]
-                - clinical_df[f"solution_{variants_reference_index}_normalized"]
-            )
-            * 7
+            pairwise_clin_res["relgrowths_confint_upper"][
+                :, var_idx + 1, variants_reference_index + 1
+            ]
             * 100,
             color=colors_covsp[variant.rstrip("*")],
             alpha=0.2,  # Transparency for the shaded area
@@ -585,6 +614,8 @@ folder = "config_jn1"
     x_min,
     x_max,
     merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
 ) = load_data(folder, divisions, variants_evaluated, reference_variant).values()
 
 make_plot(
@@ -600,6 +631,8 @@ make_plot(
     x_min,
     x_max,
     merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
 )
 
 
@@ -621,6 +654,8 @@ folder = "config_ba1ba2"
     x_min,
     x_max,
     merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
 ) = load_data(folder, divisions, variants_evaluated, reference_variant).values()
 
 make_plot(
@@ -636,6 +671,8 @@ make_plot(
     x_min,
     x_max,
     merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
 )
 
 axes[0, 1].set_xlim([pd.to_datetime("2023-08-01"), pd.to_datetime("2024-01-01")])

@@ -296,11 +296,7 @@ for i, city in enumerate(cities):
     plot_ts.plot_fit(ax, ts_lst_smooth[i], remove_0th(ys_lst_smooth[i]), colors=colors)
     # ax.set_xlim((300,ts_lst_full[i].max()))
 
-    def format_date(x, pos):
-        return plot_ts.num_to_date(x, date_min=start_date)
-
-    date_formatter = ticker.FuncFormatter(format_date)
-    ax.xaxis.set_major_formatter(date_formatter)
+    plot_ts.AdjustXAxisForTime(start_date)(ax)
 
 plt.tight_layout()
 plt.show()

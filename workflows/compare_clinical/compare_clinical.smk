@@ -21,6 +21,9 @@ rule all:
         f"results/{run_name}/consolidated_wastewater_results.csv",
         f"results/{run_name}/comparative_estimates_plot.png",
         f"results/{run_name}/fitted_values.gif",
+        expand("results/{run_name}/consolidated_pairwise_{model_type}_results.npz",
+               run_name=run_name,
+               model_type=["clinical", "wastewater"])
 
 
 # Rule to fetch total counts
@@ -198,7 +201,8 @@ rule fit_clinical_data:
     input:
         "data/{run_name}/normalized_clinical_data.csv"
     output:
-        "results/{run_name}/clinical_models/model_fitting_solution_{date}.json"
+        "results/{run_name}/clinical_models/model_fitting_solution_{date}.json",
+        "results/{run_name}/clinical_models/fit_cov_{date}.pickle",
     params:
         variants_full=config["variants_full"],
         variants_investigated=config["variants_investigated"],
@@ -208,8 +212,10 @@ rule fit_clinical_data:
     run:
         import pandas as pd
         import numpy as np
+        import jax 
         import jax.numpy as jnp
         import json
+        import pickle
         from covvfit import preprocess as preprocess
         from covvfit import quasimultinomial as qm
 
@@ -302,7 +308,36 @@ rule fit_clinical_data:
         }
         with open(output[0], "w") as f:
             json.dump(solution_data, f)
+        # make relative growths and pickle them
+        def make_relative_growths(theta_star):
+            relative_growths = (
+                qm.get_relative_growths(theta_star, n_variants=len(variants_effective))
+                - time_scaler.t_min
+            ) / (time_scaler.t_max - time_scaler.t_min)
+            relative_growths = jnp.concat([jnp.array([0]), relative_growths])
+            relative_growths = relative_growths * 7
 
+            pairwise_diff = jnp.expand_dims(relative_growths, axis=1) - jnp.expand_dims(
+                relative_growths, axis=0
+            )
+
+            return pairwise_diff
+
+
+        pairwise_diffs = make_relative_growths(solution.x)
+        jacob = jax.jacobian(make_relative_growths)(solution.x)
+        standerr_relgrowths = qm.get_standard_errors(covariance_scaled, jacob)
+        relgrowths_confint = qm.get_confidence_intervals(
+            pairwise_diffs, standerr_relgrowths, 0.95
+        )
+        
+        # Save solution.x and covariance matrix as a pickle file
+        with open(output[1], "wb") as f:
+            pickle.dump({
+                "pairwise_diffs": pairwise_diffs,
+                "relgrowths_confint": relgrowths_confint,
+                 }, f)
+            
 
 
 rule gather_clinical_results:
@@ -339,6 +374,7 @@ rule gather_clinical_results:
                     flattened_result[f"confint_upper_{i}"] = value
 
                 all_results.append(flattened_result)
+
 
         # Convert the list of dictionaries into a DataFrame
         df = pd.DataFrame(all_results)
@@ -403,7 +439,8 @@ rule fit_wastewater_data:
     input:
         "data/{run_name}/wastewater_preprocessed.csv"
     output:
-        "results/{run_name}/wastewater_models/wastewater_model_fitting_solution_{date}.json"
+        "results/{run_name}/wastewater_models/wastewater_model_fitting_solution_{date}.json",
+        "results/{run_name}/wastewater_models/fit_cov_{date}.pickle",
     params:
         variants_full=config["variants_full"],
         variants_investigated=config["variants_investigated"],
@@ -415,7 +452,9 @@ rule fit_wastewater_data:
         import pandas as pd
         import numpy as np
         import jax.numpy as jnp
+        import jax 
         import json
+        import pickle
         from covvfit import preprocess as preprocess
         from covvfit import quasimultinomial as qm
 
@@ -503,6 +542,36 @@ rule fit_wastewater_data:
         with open(output[0], "w") as f:
             json.dump(solution_data, f)
 
+        # make relative growths and pickle them
+        def make_relative_growths(theta_star):
+            relative_growths = (
+                qm.get_relative_growths(theta_star, n_variants=len(variants_effective))
+                - time_scaler.t_min
+            ) / (time_scaler.t_max - time_scaler.t_min)
+            relative_growths = jnp.concat([jnp.array([0]), relative_growths])
+            relative_growths = relative_growths * 7
+
+            pairwise_diff = jnp.expand_dims(relative_growths, axis=1) - jnp.expand_dims(
+                relative_growths, axis=0
+            )
+
+            return pairwise_diff
+
+
+        pairwise_diffs = make_relative_growths(solution.x)
+        jacob = jax.jacobian(make_relative_growths)(solution.x)
+        standerr_relgrowths = qm.get_standard_errors(covariance_scaled, jacob)
+        relgrowths_confint = qm.get_confidence_intervals(
+            pairwise_diffs, standerr_relgrowths, 0.95
+        )
+        
+        # Save solution.x and covariance matrix as a pickle file
+        with open(output[1], "wb") as f:
+            pickle.dump({
+                "pairwise_diffs": pairwise_diffs,
+                "relgrowths_confint": relgrowths_confint,
+                 }, f)
+
 rule gather_wastewater_results:
     input:
         expand("results/{run_name}/wastewater_models/wastewater_model_fitting_solution_{date}.json",
@@ -543,6 +612,52 @@ rule gather_wastewater_results:
 
         # Save the DataFrame as a CSV file
         df.to_csv(output[0], index=False)
+
+rule gather_pairwise_results:
+    input:
+        lambda wildcards: expand("results/{run_name}/{model_type}_models/fit_cov_{date}.pickle",
+                                 date=date_range,
+                                 run_name=run_name,
+                                 model_type=wildcards.model_type)
+    output:
+        "results/{run_name}/consolidated_pairwise_{model_type}_results.npz"
+    wildcard_constraints:
+        model_type="clinical|wastewater"  # Restrict wildcard values
+    run:
+        import pickle
+        import numpy as np
+
+        pairwise_diffs_list = []
+        relgrowths_confint_lower_list = []
+        relgrowths_confint_upper_list = []
+        dates_list = []  # Store corresponding dates
+
+        for file in input:
+            with open(file, "rb") as f:
+                tf = pickle.load(f)
+
+            pairwise_diffs_list.append(tf['pairwise_diffs'])
+            relgrowths_confint_lower_list.append(tf['relgrowths_confint'][0])
+            relgrowths_confint_upper_list.append(tf['relgrowths_confint'][1])
+
+            # Extract date from filename (assuming format: "fit_cov_YYYY-MM-DD.pickle")
+            date_str = file.split("fit_cov_")[-1].split(".pickle")[0]
+            dates_list.append(date_str)
+
+        # Convert lists to numpy arrays
+        pairwise_diffs = np.stack(pairwise_diffs_list, axis=0)
+        relgrowths_confint_lower = np.stack(relgrowths_confint_lower_list, axis=0)
+        relgrowths_confint_upper = np.stack(relgrowths_confint_upper_list, axis=0)
+        dates_array = np.array(dates_list, dtype=str)  # Store as a string array
+
+        # Save everything in a single .npz file
+        np.savez_compressed(output[0],
+                 pairwise_diffs=pairwise_diffs,
+                 relgrowths_confint_lower=relgrowths_confint_lower,
+                 relgrowths_confint_upper=relgrowths_confint_upper,
+                 dates=dates_array)
+
+
 
 rule plot_comparative_estimates:
     input:
@@ -739,15 +854,13 @@ rule plot_fitted_values:
             # plot_ts.plot_complement(ax, ts_lst[i], remove_0th(ys_fitted[i]), alpha=0.3)
             # plot_ts.plot_complement(ax, ts_pred_lst[i], remove_0th(ys_pred[i]), linestyle="--", alpha=0.3)
 
-            def format_date(x, pos):
-                return plot_ts.num_to_date(x, date_min=start_date)
-
-            date_formatter = ticker.FuncFormatter(format_date)
-            ax.xaxis.set_major_formatter(date_formatter)
-            ax.set_yticks([0, 0.5, 1])
             time_scaler_data = preprocess.TimeScaler()
             time_scaler_data.fit(ts_lst_raw)
             ax.set_xlim((time_scaler_data.t_min, time_scaler_data.t_max))
+            adjust_fn = plot_ts.AdjustXAxisForTime(start_date)
+            adjust_fn(ax)
+
+            ax.set_yticks([0, 0.5, 1])
             ax.set_yticklabels(["0%", "50%", "100%"])
             ax.set_ylabel("Relative abundances")
             ax.set_title(cities[i])
