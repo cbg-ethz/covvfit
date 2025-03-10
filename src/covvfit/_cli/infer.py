@@ -417,6 +417,63 @@ def infer(
         covariance=covariance_scaled,
     )
 
+    # Output pairwise fitness advantages
+
+    def make_relative_growths(theta_star):
+        relative_growths = (
+            qm.get_relative_growths(theta_star, n_variants=n_variants_effective)
+            - time_scaler.t_min
+        ) / (time_scaler.t_max - time_scaler.t_min)
+        relative_growths = jnp.concat([jnp.array([0]), relative_growths])
+        relative_growths = relative_growths * DAYS_IN_A_WEEK
+
+        pairwise_diff = jnp.expand_dims(relative_growths, axis=1) - jnp.expand_dims(
+            relative_growths, axis=0
+        )
+
+        return pairwise_diff
+
+    pairwise_diffs = make_relative_growths(theta_star)
+    jacob = jax.jacobian(make_relative_growths)(theta_star)
+    standerr_relgrowths = qm.get_standard_errors(covariance_scaled, jacob)
+    relgrowths_confint = qm.get_confidence_intervals(
+        make_relative_growths(theta_star), standerr_relgrowths, 0.95
+    )
+
+    df_diffs = (
+        pd.DataFrame(
+            pairwise_diffs, index=variants_effective, columns=variants_effective
+        )
+        .reset_index()
+        .melt(id_vars="index")
+    )
+    df_diffs.columns = ["Variant", "Reference_Variant", "Estimate"]
+
+    # Create confidence interval DataFrames
+    df_lower = (
+        pd.DataFrame(
+            relgrowths_confint[0], index=variants_effective, columns=variants_effective
+        )
+        .reset_index()
+        .melt(id_vars="index")
+    )
+    df_upper = (
+        pd.DataFrame(
+            relgrowths_confint[1], index=variants_effective, columns=variants_effective
+        )
+        .reset_index()
+        .melt(id_vars="index")
+    )
+
+    df_lower.columns = ["Variant", "Reference_Variant", "Lower_CI"]
+    df_upper.columns = ["Variant", "Reference_Variant", "Upper_CI"]
+
+    # Merge all data
+    df_final = df_diffs.merge(df_lower, on=["Variant", "Reference_Variant"]).merge(
+        df_upper, on=["Variant", "Reference_Variant"]
+    )
+    df_final.to_csv(output / "pairwise_fitnesses.csv")
+
     # Create a plot
     colors = [config.plot.variant_colors[var] for var in variants_investigated]
 
@@ -507,3 +564,4 @@ def infer(
     figure_spec.fig.legend(handles=handles, loc="outside center right", frameon=False)
 
     figure_spec.fig.savefig(output / "figure.pdf")
+    figure_spec.fig.savefig(output / "figure.png")
