@@ -117,31 +117,45 @@ class PlotDimensions(pydantic.BaseModel):
     panel_height: float = 1.5
     dpi: int = 350
 
-    wspace: float = 1.0
-    hspace: float = 0.5
+    wspace: float = pydantic.Field(
+        default=1.0, help="Horizontal (width) spacing between figure panels."
+    )
+    hspace: float = pydantic.Field(
+        default=0.5, help="Vertical (height) spacing between figure panels."
+    )
 
-    left: float = 1.0
-    right: float = 1.5
-    top: float = 0.7
-    bottom: float = 0.5
+    left: float = pydantic.Field(default=1.0, help="Left margin in the figure.")
+    right: float = pydantic.Field(default=1.5, help="Right margin in the figure.")
+    top: float = pydantic.Field(default=0.7, help="Top margin in the figure.")
+    bottom: float = pydantic.Field(default=0.5, help="Bottom margin in the figure.")
 
 
 class PlotSettings(pydantic.BaseModel):
     dimensions: PlotDimensions = pydantic.Field(default_factory=PlotDimensions)
     prediction: PredictionRegion = pydantic.Field(default_factory=PredictionRegion)
     variant_colors: dict[str, str] = pydantic.Field(
-        default_factory=lambda: plot_ts.COLORS_COVSPECTRUM
+        default_factory=lambda: plot_ts.COLORS_COVSPECTRUM,
+        help="Dictionary mapping variants to colors in the plot.",
+    )
+    time_spacing: pydantic.conint(ge=1) = pydantic.Field(
+        default=1, help="Spacing between ticks on the time axis (in months)."
     )
 
 
 class Config(pydantic.BaseModel):
-    variants: list[str] = pydantic.Field(default_factory=lambda: [])
-    plot: PlotSettings = pydantic.Field(default_factory=PlotSettings)
+    variants: list[str] = pydantic.Field(
+        default_factory=lambda: [],
+        help="List of variants to be included in the analysis.",
+    )
+    plot: PlotSettings = pydantic.Field(
+        default_factory=PlotSettings, help="Plot settings."
+    )
 
 
 def _parse_config(
     config_path: Optional[str],
     variants: Optional[list[str]],
+    time_spacing: Optional[int],
 ) -> Config:
     if config_path is None:
         config = Config()
@@ -152,6 +166,9 @@ def _parse_config(
 
     if variants is not None:
         config.variants = variants
+
+    if time_spacing is not None:
+        config.plot.time_spacing = time_spacing
 
     if len(config.variants) == 0:
         raise ValueError("No variants have been specified.")
@@ -195,6 +212,13 @@ def infer(
             help="Number of future days for which abundance prediction should be generated",
         ),
     ] = 60,
+    time_spacing: Annotated[
+        Optional[int],
+        typer.Option(
+            "--time-spacing",
+            help="Spacing between ticks on the time axis in months",
+        ),
+    ] = None,
     variant_col: Annotated[
         str,
         typer.Option(
@@ -231,7 +255,9 @@ def infer(
             "The variant names are not specified. Use `--config` argument or `-v` to specify them."
         )
 
-    config: Config = _parse_config(config_path=config, variants=var)
+    config: Config = _parse_config(
+        config_path=config, variants=var, time_spacing=time_spacing
+    )
 
     variants_investigated = config.variants
 
@@ -377,7 +403,6 @@ def infer(
     )
 
     # Create a plot
-
     colors = [config.plot.variant_colors[var] for var in variants_investigated]
 
     plot_dimensions = config.plot.dimensions
@@ -446,7 +471,9 @@ def infer(
             alpha=0.3,
         )
 
-        adjust_axis_fn = plot_ts.AdjustXAxisForTime(start_date)
+        adjust_axis_fn = plot_ts.AdjustXAxisForTime(
+            start_date, spacing_months=config.plot.time_spacing
+        )
         adjust_axis_fn(ax)
 
         tick_positions = [0, 0.5, 1]

@@ -72,7 +72,7 @@ class _MonthStartLocator(ticker.Locator):
     the first day of each month within the data's visible range.
     """
 
-    def __init__(self, start_date: str, time_unit: str) -> None:
+    def __init__(self, start_date: str, time_unit: str, spacing_months: int) -> None:
         """
 
         Args:
@@ -83,6 +83,9 @@ class _MonthStartLocator(ticker.Locator):
         # Store the reference start_date as a Timestamp
         self.start_date = pd.to_datetime(start_date)
         self.time_unit = time_unit
+        self.spacing_months = spacing_months
+        if spacing_months <= 0:
+            raise ValueError("Has to be at least 1.")
 
         # See the todo item in the `__call__` method
         if time_unit != "D":
@@ -119,7 +122,7 @@ class _MonthStartLocator(ticker.Locator):
             ticks.append(offset_days)
             current += pd.offsets.MonthBegin(1)
 
-        return ticks[::3]
+        return ticks[:: self.spacing_months]
 
     def tick_values(self, vmin, vmax):
         # Matplotlib may call tick_values directly; just reuse __call__()
@@ -133,6 +136,7 @@ class AdjustXAxisForTime:
         *,
         fmt="%b '%y",
         time_unit: str = "D",
+        spacing_months: int = 1,
     ) -> None:
         """Adjusts the X ticks, so that the ticks
         are placed at the first day of each month.
@@ -146,6 +150,7 @@ class AdjustXAxisForTime:
         self.start_date = time0
         self.fmt = fmt
         self.time_unit = time_unit
+        self.spacing_months = spacing_months
 
     def _num_to_date(self, num: pd.Series | Float[Array, " timepoints"]) -> pd.Series:
         """Convert days number into a date format"""
@@ -154,7 +159,11 @@ class AdjustXAxisForTime:
 
     def __call__(self, ax: plt.Axes) -> None:
         ax.xaxis.set_major_locator(
-            _MonthStartLocator(start_date=self.start_date, time_unit=self.time_unit)
+            _MonthStartLocator(
+                start_date=self.start_date,
+                time_unit=self.time_unit,
+                spacing_months=self.spacing_months,
+            )
         )
         ax.xaxis.set_major_formatter(
             ticker.FuncFormatter(lambda x, pos: self._num_to_date(x))
