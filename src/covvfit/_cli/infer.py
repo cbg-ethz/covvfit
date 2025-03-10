@@ -1,4 +1,5 @@
 """Script running Covvfit inference on the data."""
+import warnings
 from pathlib import Path
 from typing import Annotated, NamedTuple, Optional
 
@@ -246,9 +247,23 @@ def infer(
         Optional[str],
         typer.Option("--matplotlib-backend", help="Matplotlib backend to use"),
     ] = None,
+    overwrite_output: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite-output",
+            help="Allows overwriting the output directory, if it already exists. Note: this may result in unintented loss of data.",
+        ),
+    ] = False,
 ) -> None:
     """Runs growth advantage inference."""
     _set_matplotlib_backend(matplotlib_backend)
+
+    # Ignore warnings with JAX converting arrays from 64-bit to 32-bit
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Explicitly requested dtype float64 requested in zeros.*",
+        category=UserWarning,
+    )
 
     if var is None and config is None:
         raise ValueError(
@@ -274,7 +289,7 @@ def infer(
     )
 
     output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
+    output.mkdir(parents=True, exist_ok=overwrite_output)
 
     def pprint(message):
         with open(output / "log.txt", "a") as file:
