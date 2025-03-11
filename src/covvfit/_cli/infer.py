@@ -254,6 +254,13 @@ def infer(
             help="Allows overwriting the output directory, if it already exists. Note: this may result in unintented loss of data.",
         ),
     ] = False,
+    p1mp: Annotated[
+        bool,
+        typer.Option(
+            "--residuals-variance",
+            help="Whether to use p(1-p) to calculate the overdispersion. If False, just p will be used.",
+        ),
+    ] = False,
 ) -> None:
     """Runs growth advantage inference."""
     _set_matplotlib_backend(matplotlib_backend)
@@ -354,6 +361,7 @@ def infer(
     overdispersion_tuple = qm.compute_overdispersion(
         observed=ys_effective,
         predicted=ys_fitted,
+        p1mp=p1mp,
     )
 
     overdisp_fixed = overdispersion_tuple.overall
