@@ -254,12 +254,12 @@ def infer(
             help="Allows overwriting the output directory, if it already exists. Note: this may result in unintented loss of data.",
         ),
     ] = False,
-    residuals_simple: Annotated[
+    residuals_p1mp: Annotated[
         bool,
         typer.Option(
-            "--residuals-simple",
-            help="If True, to calculate the overdispersion we will use `p_i` in the denominator."
-            "If False (default), we use `p_i(1 - p_i)`.",
+            "--residuals-p1mp",
+            help="If True, to calculate the overdispersion we will use `p_i(1-p_i)` in the denominator."
+            "If False (default), we use `p_i` in the denominator.",
         ),
     ] = False,
 ) -> None:
@@ -362,7 +362,7 @@ def infer(
     overdispersion_tuple = qm.compute_overdispersion(
         observed=ys_effective,
         predicted=ys_fitted,
-        p1mp=not residuals_simple,
+        p1mp=residuals_p1mp,
     )
 
     overdisp_fixed = overdispersion_tuple.overall
