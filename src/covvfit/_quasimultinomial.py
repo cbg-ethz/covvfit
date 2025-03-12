@@ -732,6 +732,7 @@ def compute_alleged_squared_pearson_residuals(
     observed: list[Float[Array, "timepoints variants"]],
     predicted: list[Float[Array, "timepoints variants"]],
     sample_sizes: _OverDispersionType = 1.0,
+    p1mp: bool = False,
 ) -> list[Float[Array, "timepoints variants"]]:
     n_cities = len(observed)
     if len(predicted) != n_cities:
@@ -751,10 +752,16 @@ def compute_alleged_squared_pearson_residuals(
     sample_sizes = [array[:length] for array, length in zip(ns_array, lengths)]
     # Now sample_sizes has the same number of timepoints as predicted and observed
 
-    return [
-        ns[:, None] * jnp.square(obs - pre) / (pre * (1 - pre))
-        for obs, pre, ns in zip(observed, predicted, sample_sizes)
-    ]
+    if p1mp:  # Use p(1-p) in the denominator
+        return [
+            ns[:, None] * jnp.square(obs - pre) / (pre * (1 - pre))
+            for obs, pre, ns in zip(observed, predicted, sample_sizes)
+        ]
+    else:  # Use p in the denominator
+        return [
+            ns[:, None] * jnp.square(obs - pre) / pre
+            for obs, pre, ns in zip(observed, predicted, sample_sizes)
+        ]
 
 
 class OverDispersion(NamedTuple):
@@ -767,6 +774,7 @@ def compute_overdispersion(
     predicted: list[Float[Array, "timepoints variants"]],
     sample_sizes: _OverDispersionType = 1.0,
     epsilon: float = 0.001,
+    p1mp: bool = False,
 ) -> OverDispersion:
     """
     Compute overdispersion from a quasimultinomial model.
@@ -787,6 +795,7 @@ def compute_overdispersion(
         observed=observed,
         predicted=predicted,
         sample_sizes=sample_sizes,
+        p1mp=p1mp,
     )
     n_cities = len(observed)
     n_variants = observed[0].shape[1]
