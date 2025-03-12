@@ -481,7 +481,15 @@ def infer(
     df_final = df_diffs.merge(df_lower, on=["Variant", "Reference_Variant"]).merge(
         df_upper, on=["Variant", "Reference_Variant"]
     )
-    df_final.to_csv(output / "pairwise_fitnesses.csv")
+    df_final.to_csv(output / "pairwise_fitnesses.csv", sep=data_separator, index=False)
+
+    pprint("\n\nRelative fitness values:")
+    for _, row in df_final.iterrows():
+        if row["Variant"] == row["Reference_Variant"]:
+            continue
+        pprint(
+            f"  {row['Variant']} / {row['Reference_Variant']}:\t{row['Estimate']:.3f} ({row['Lower_CI']:.3f} – {row['Upper_CI']:.3f})"
+        )
 
     # Create a plot
     colors = [config.plot.variant_colors[var] for var in variants_investigated]
