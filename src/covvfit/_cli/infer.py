@@ -254,6 +254,14 @@ def infer(
             help="Allows overwriting the output directory, if it already exists. Note: this may result in unintented loss of data.",
         ),
     ] = False,
+    residuals_p1mp: Annotated[
+        bool,
+        typer.Option(
+            "--residuals-p1mp",
+            help="If True, to calculate the overdispersion we will use `p_i(1-p_i)` in the denominator."
+            "If False (default), we use `p_i` in the denominator.",
+        ),
+    ] = False,
 ) -> None:
     """Runs growth advantage inference."""
     _set_matplotlib_backend(matplotlib_backend)
@@ -354,6 +362,7 @@ def infer(
     overdispersion_tuple = qm.compute_overdispersion(
         observed=ys_effective,
         predicted=ys_fitted,
+        p1mp=residuals_p1mp,
     )
 
     overdisp_fixed = overdispersion_tuple.overall
@@ -472,7 +481,15 @@ def infer(
     df_final = df_diffs.merge(df_lower, on=["Variant", "Reference_Variant"]).merge(
         df_upper, on=["Variant", "Reference_Variant"]
     )
-    df_final.to_csv(output / "pairwise_fitnesses.csv")
+    df_final.to_csv(output / "pairwise_fitnesses.csv", sep=data_separator, index=False)
+
+    pprint("\n\nRelative fitness values:")
+    for _, row in df_final.iterrows():
+        if row["Variant"] == row["Reference_Variant"]:
+            continue
+        pprint(
+            f"  {row['Variant']} / {row['Reference_Variant']}:\t{row['Estimate']:.3f} ({row['Lower_CI']:.3f} – {row['Upper_CI']:.3f})"
+        )
 
     # Create a plot
     colors = [config.plot.variant_colors[var] for var in variants_investigated]
