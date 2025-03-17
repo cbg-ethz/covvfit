@@ -19,24 +19,6 @@ import covvfit.plotting as plot
 plot_ts = plot.timeseries
 
 
-class _ProcessedData(NamedTuple):
-    # dataframe: pd.DataFrame
-    timepoints: list[np.ndarray]
-    proportions: list[np.ndarray]
-
-    cities: list[str]
-    variants_effective: list[str]
-    start_date: pd.Timestamp
-    horizon: int  # The prediction horizon
-
-
-class _Columns(NamedTuple):
-    variant: str
-    proportion: str
-    date: str
-    location: str
-
-
 class _InputDates(NamedTuple):
     min_date: Optional[str]
     max_date: Optional[str]
@@ -49,7 +31,15 @@ class _InputDates(NamedTuple):
 class _ParsedDates(NamedTuple):
     start_date: pd.Timestamp
     max_date: pd.Timestamp
-    horizon: int
+    horizon_date: pd.Timestamp
+
+    @property
+    def horizon(self) -> int:
+        return (self.horizon_date - self.max_date).days
+
+    @property
+    def total_length(self) -> int:
+        return (self.horizon_date - self.start_date).days
 
 
 def _parse_dates(raw: _InputDates, series: pd.Series) -> _ParsedDates:
@@ -68,19 +58,38 @@ def _parse_dates(raw: _InputDates, series: pd.Series) -> _ParsedDates:
     else:
         start_date = max_date - pd.to_timedelta(raw.max_days, unit="D")
 
-    # Finally, infer the horizon
+    # Finally, infer the horizon date
     if raw.horizon_max_date is not None:
-        horizon = (pd.to_datetime(raw.horizon_max_date) - max_date).days
+        horizon_date = pd.to_datetime(raw.horizon_max_date)
     else:
-        horizon = raw.horizon
-    if horizon <= 0:
+        horizon_date = max_date + pd.to_timedelta(raw.horizon, unit="D")
+
+    parsed = _ParsedDates(
+        start_date=start_date, max_date=max_date, horizon_date=horizon_date
+    )
+
+    if parsed.horizon <= 0:
         raise ValueError("Inferred horizon is less than 1.")
 
-    return _ParsedDates(
-        start_date=start_date,
-        max_date=max_date,
-        horizon=horizon,
-    )
+    return parsed
+
+
+class _Columns(NamedTuple):
+    variant: str
+    proportion: str
+    date: str
+    location: str
+
+
+class _ProcessedData(NamedTuple):
+    # dataframe: pd.DataFrame
+    timepoints: list[np.ndarray]
+    proportions: list[np.ndarray]
+
+    cities: list[str]
+    variants_effective: list[str]
+
+    dates: _ParsedDates
 
 
 def _process_data(
@@ -164,8 +173,7 @@ def _process_data(
         proportions=proportions,
         cities=cities,
         variants_effective=variants_effective,
-        start_date=parsed_dates.start_date,
-        horizon=parsed_dates.horizon,
+        dates=parsed_dates,
     )
 
 
@@ -216,6 +224,9 @@ class PlotSettings(pydantic.BaseModel):
     extensions: list[str] = pydantic.Field(
         default_factory=lambda: ["png", "pdf"],
         help="Extensions to which the figure should be exported.",
+    )
+    dpi: Annotated[int, pydantic.Field(strict=True, ge=1)] = pydantic.Field(
+        default=500, help="DPI changes the figure resolution."
     )
 
 
@@ -507,8 +518,8 @@ def _main(
 
     cities = bundle.cities
     variants_effective = bundle.variants_effective
-    start_date = bundle.start_date
-    horizon: int = bundle.horizon  # The prediction horizon
+    start_date = bundle.dates.start_date
+    horizon: int = bundle.dates.horizon  # The prediction horizon
 
     ts_lst, ys_effective = bundle.timepoints, bundle.proportions
 
@@ -727,9 +738,11 @@ def _main(
         prediction_linestyle = config.plot.prediction.linestyle
         ax.axvspan(
             jnp.min(ts_pred_lst[i]),
-            jnp.max(ts_pred_lst[i]),
+            bundle.dates.total_length,
             color=prediction_region_color,
             alpha=prediction_region_alpha,
+            edgecolor=None,
+            linewidth=None,
         )
 
         # Plot fits in observed and unobserved time intervals.
@@ -773,6 +786,8 @@ def _main(
         )
         adjust_axis_fn(ax)
 
+        ax.set_xlim(-0.5, bundle.dates.total_length + 0.5)
+        ax.set_ylim(-0.01, 1.01)
         tick_positions = [0, 0.5, 1]
         tick_labels = ["0%", "50%", "100%"]
         ax.set_yticks(tick_positions)
@@ -789,4 +804,4 @@ def _main(
     figure_spec.fig.legend(handles=handles, loc="outside center right", frameon=False)
 
     for ext in config.plot.extensions:
-        figure_spec.fig.savefig(output / f"figure.{ext}")
+        figure_spec.fig.savefig(output / f"figure.{ext}", dpi=config.plot.dpi)
