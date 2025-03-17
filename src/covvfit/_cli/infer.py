@@ -33,12 +33,12 @@ def _process_data(
     data_path: str,
     data_separator: str,
     variants_investigated: list[str],
-    variant_dates: str,
     max_days: int,
     variant_col: str,
     proportion_col: str,
     date_col: str,
     location_col: str,
+    variant_dates: str = "",  # TODO(Pawel): Remove
 ) -> _ProcessedData:
     data = pd.read_csv(data_path, sep=data_separator)
 
@@ -141,6 +141,9 @@ class PlotSettings(pydantic.BaseModel):
     time_spacing: pydantic.conint(ge=1) = pydantic.Field(
         default=1, help="Spacing between ticks on the time axis (in months)."
     )
+    backend: Optional[str] = pydantic.Field(
+        default=None, help="Matplotlib backend to use."
+    )
 
 
 class Config(pydantic.BaseModel):
@@ -178,12 +181,15 @@ def _parse_config(
 
 
 def infer(
-    data: Annotated[str, typer.Argument(help="CSV with deconvolved data")],
-    variant_dates: Annotated[str, typer.Argument(help="YAML file with variant dates")],
-    output: Annotated[str, typer.Argument(help="Output directory")],
+    data: Annotated[
+        str, typer.Option("--input", "-i", help="CSV with deconvolved data")
+    ],
+    output: Annotated[str, typer.Option("--output", "-o", help="Output directory")],
     config: Annotated[
         Optional[str],
-        typer.Option("--config", help="Path to the YAML file with configuration."),
+        typer.Option(
+            "--config", "-c", help="Path to the YAML file with configuration."
+        ),
     ] = None,
     var: Annotated[
         Optional[list[str]],
@@ -196,7 +202,7 @@ def infer(
     data_separator: Annotated[
         str,
         typer.Option(
-            "--data-separator", help="Separator to be used to read the CSV file."
+            "--separator", "-s", help="Separator to be used to read the CSV file."
         ),
     ] = "\t",
     max_days: Annotated[
@@ -206,6 +212,20 @@ def infer(
             help="Number of the past dates to which the analysis will be restricted",
         ),
     ] = 240,
+    date_min: Annotated[
+        str,
+        typer.Option(
+            "--date-min",
+            help="Minimum date to start load data in format YYYY-MM-DD. By default calculated using `--max_days` and `--date-max`.",
+        ),
+    ] = None,
+    date_max: Annotated[
+        str,
+        typer.Option(
+            "--date-max",
+            help="Maximum date to finish loading data, provided in format YYYY-MM-DD. By default calculated as the last date in the CSV file.",
+        ),
+    ] = None,
     horizon: Annotated[
         int,
         typer.Option(
@@ -213,6 +233,13 @@ def infer(
             help="Number of future days for which abundance prediction should be generated",
         ),
     ] = 60,
+    horizon_date: Annotated[
+        str,
+        typer.Option(
+            "--horizon-date",
+            help="Date until when the predictions should occur, provided in format YYYY-MM-DD. By default calculated using `--horizon` and `--date-max`.",
+        ),
+    ] = None,
     time_spacing: Annotated[
         Optional[int],
         typer.Option(
@@ -243,10 +270,6 @@ def infer(
         str,
         typer.Option("--location-col", help="Name of the column with spatial location"),
     ] = "location",
-    matplotlib_backend: Annotated[
-        Optional[str],
-        typer.Option("--matplotlib-backend", help="Matplotlib backend to use"),
-    ] = None,
     overwrite_output: Annotated[
         bool,
         typer.Option(
@@ -264,8 +287,6 @@ def infer(
     ] = False,
 ) -> None:
     """Runs growth advantage inference."""
-    _set_matplotlib_backend(matplotlib_backend)
-
     # Ignore warnings with JAX converting arrays from 64-bit to 32-bit
     warnings.filterwarnings(
         "ignore",
@@ -283,12 +304,12 @@ def infer(
     )
 
     variants_investigated = config.variants
+    _set_matplotlib_backend(config.plot.backend)  # Set matplotlib backend using config.
 
     bundle = _process_data(
         data_path=data,
         data_separator=data_separator,
         variants_investigated=variants_investigated,
-        variant_dates=variant_dates,
         max_days=max_days,
         variant_col=variant_col,
         proportion_col=proportion_col,
