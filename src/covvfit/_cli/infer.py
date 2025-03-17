@@ -216,7 +216,7 @@ class PlotSettings(pydantic.BaseModel):
         help="Dictionary mapping variants to colors in the plot.",
     )
     time_spacing: Annotated[int, pydantic.Field(strict=True, ge=1)] = pydantic.Field(
-        default=1, help="Spacing between ticks on the time axis (in months)."
+        default=2, help="Spacing between ticks on the time axis (in months)."
     )
     backend: Optional[str] = pydantic.Field(
         default=None, help="Matplotlib backend to use."
@@ -509,6 +509,10 @@ def _main(
 
     # Prepare the output path
     output: Path = output.create()
+
+    # Save the config file
+    with open(output / "config.yaml", "w") as fh:
+        yaml.safe_dump(config.model_dump(), fh)
 
     def pprint(message):
         # TODO(Pawel): Consider setting up a proper logger.
