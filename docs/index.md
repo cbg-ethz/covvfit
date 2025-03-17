@@ -3,7 +3,15 @@
 *Covvfit* is a framework for estimating relative growth advantages of different variants from deconvolved wastewater samples.
 It consists of command line tools, which can be included in the existing workflows and a Python package, which can be used to quickly develop custom solutions and extensions.
 
+## Getting started
 
+*Covvfit* can be installed from the Python Package Index:
+
+```bash
+$ pip install covvfit
+```
+
+For an example how to analyze the data using the provided command line tool see [this tutorial](./cli.md).
 
 
 ## FAQ
