@@ -1,43 +1,17 @@
 # Command line workflow
 
-## Deconvolving the data
-
+We assume that the *Covvfit* tool has been installed properly (see the [installation guide](./installation.md)).
 *Covvfit* takes as an input a data frame containing deconvolved values.
+Below we describe how to download an example data set.
 
-If you use:
+However, if you have your own data, you can deconvolve them using the following tools:
 
-  - *LolliPop*, follow [these instructions](running_deconv/lollipop.md) on how to run *LolliPop*. (Note that the smoothing can bias the results, so you may need to deconvolve the data again, if you used smoothing.)
-  - *Freyja*, follow [these instructions](running_deconv/freyja.md) to assemble the outputs into a data frame.
+  - *LolliPop*: follow [these instructions](running_deconv/lollipop.md) on how to run *LolliPop*. (Note that the smoothing can bias the results, so you may need to deconvolve the data again, if you used smoothing.)
+  - *Freyja*: follow [these instructions](running_deconv/freyja.md) to assemble the outputs into a data frame.
 
-However, in this tutorial we will work with example data, which have already been deconvolved and assembled into a suitable data frame.
+In this tutorial we will work with example data, which have already been deconvolved and assembled into a suitable data frame.
 
-## Installation
-
-We will use the convention that `$` represents the command line prompt. For example,
-
-```bash
-$ run command
-```
-means that one should type `run command` into the shell.  
-
-To install *Covvfit*, ensure that you have Python installed and run:
-
-```bash
-$ pip install covvfit
-```
-
-This installs both the Python package (which can be used to create more complex automated workflows or employed to build other tools) and the command line utility `covvfit`.
-
-
-!!! note "How to check whether *Covvfit* is installed"
-    
-    Run `$ covvfit check`. If it prints `[Status: OK] The tool has been installed properly.`, then proceed with the tutorial.
-    Otherwise, you can report the problem at the bug tracker: [https://github.com/cbg-ethz/covvfit/issues](https://github.com/cbg-ethz/covvfit/issues).
-
-
-## Estimating growth advantages
-
-### The data
+## The data
 
 What is the suitable data? We assemble the deconvolved variant abundance estimates into a data frame with four columns,
 representing *location* (the region or city where the data were obtained), *date* (when the sample was collected), *variant* and deconvolved *proportions*.
@@ -60,7 +34,7 @@ The example data can be downloaded from [this link](https://drive.google.com/dri
 Create the new directory and save the data there as `example-data.tsv`.
 
 
-### Running *Covvfit*
+## Running *Covvfit*
 
 We have installed the package and downloaded the data.
 Using the [`cd`](https://en.wikipedia.org/wiki/Cd_(command)) command, navigate to the directory where the data have been downloaded.
@@ -84,7 +58,15 @@ What files in the `example-output` directory were created? By default, we should
   - `pairwise_fitnesses.csv`: the relative fitness advantages between each pair of variants.
   - `log.txt`: log of the computations performed by the tool.
 
-### More control over input arguments
+### Interpreting the figure
+
+The figure will look as follows:
+
+![Generated figure](./static/figure.png)
+
+We see the variant abundances for each location, together with the model fit, as well as model predictions over the coming weeks (marked with dashed lines in the shaded region).
+
+## More control over input arguments
 
 The above example is very simple, as the example data have been formatted according to our default naming conventions. How can we run the tool on the data which is formatted differently? For example, it's not a TSV file (separated using the TAB character), but rather a CSV file (separated using the comma)? Or the column names are different?
 
@@ -123,7 +105,7 @@ which prints the following message:
 
 We see that the separator can be changed by using the `--separator` (or `-s` for short) argument. Similarly, the column names can be set using `--variant-col`, `--proportion-col` etc. argument
 
-#### Navigating space and time
+### Navigating space and time
 
 Similarly as `-v` controls the list of variants in the analysis, the `--loc` flag controls the locations included. If no `--loc` flag is specified, we use all the locations found in the data frame (in the example above, it is equivalent to `--loc GE --loc ZH`).
 However, to restrict the analysis only to the data from Geneva, you can run `--loc GE`.

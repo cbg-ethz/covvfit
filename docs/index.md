@@ -9,9 +9,12 @@ It consists of command line tools, which can be included in the existing workflo
 
 ```bash
 $ pip install covvfit
+$ covvfit check
 ```
 
-For an example how to analyze the data using the provided command line tool see [this tutorial](./cli.md).
+For an example **how to analyze the data** using the provided command line tool, see [this tutorial](./cli.md).
+
+For more detailed installation instructions, including troubleshooting, see the [installation guide](./installation.md).
 
 
 ## FAQ
