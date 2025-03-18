@@ -62,7 +62,7 @@ What files in the `example-output` directory were created? By default, we should
 
 The figure will look as follows:
 
-![Generated figure](./static/figure.png)
+![Generated figure](./static/infer-output-figure.jpg)
 
 We see the variant abundances for each location, together with the model fit, as well as model predictions over the coming weeks (marked with dashed lines in the shaded region).
 
