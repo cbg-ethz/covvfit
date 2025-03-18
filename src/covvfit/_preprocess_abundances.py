@@ -44,7 +44,7 @@ def preprocess_df(
     df = df.copy()
 
     # Convert the 'time' column to datetime
-    df[time_col] = pd.to_datetime(df["time"])
+    df[time_col] = pd.to_datetime(df[time_col])
 
     # Remove days with too high undetermined
     if undetermined_col is not None:
@@ -72,18 +72,21 @@ def make_data_list(
     df: pd.DataFrame,
     cities: list[str],
     variants: list[str],
+    city_col: str = "city",
+    time_col: str = "days_from",
+    allow_for_undefined_behaviour: bool = True,
 ) -> tuple[
     list[Float[Array, " timepoints"]], list[Float[Array, "timepoints variants"]]
 ]:
-    ts_lst = [df[(df.city == city)].days_from.values for city in cities]
+    ts_lst = [df[df[city_col] == city][time_col].values for city in cities]
     ys_lst = [
-        df[(df.city == city)][variants].values for city in cities
+        df[df[city_col] == city][variants].values for city in cities
     ]  # pyright: ignore
     # TODO(David, Pawel): How should we handle this case?
     #   It *implicitly* changes the output data type, basing on the input value.
     #   Do we even use this feature?
-    if "count_sum" in df.columns:
-        ns_lst = [df[(df.city == city)].count_sum.values for city in cities]
+    if "count_sum" in df.columns and allow_for_undefined_behaviour:
+        ns_lst = [df[(df[city_col] == city)].count_sum.values for city in cities]
         return (ts_lst, ys_lst, ns_lst)
     else:
         return (ts_lst, ys_lst)
@@ -127,8 +130,7 @@ class TimeScaler:
         if not self._fitted:
             raise RuntimeError("You need to fit the model first.")
 
-        denominator = self.t_max - self.t_min
-        return [(x - self.t_min) / denominator for x in ts]
+        return [(x - self.t_min) / self.time_unit for x in ts]
 
     def fit_transform(self, ts: _ListTimeSeries) -> _ListTimeSeries:
         """Fits the model and returns scaled values.

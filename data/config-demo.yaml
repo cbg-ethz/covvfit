@@ -1,0 +1,8 @@
+variants:
+  - KP.2
+  - KP.3
+  - XEC
+plot:
+  dimensions:
+    right: 1.0
+

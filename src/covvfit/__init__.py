@@ -17,7 +17,7 @@ import covvfit._preprocess_abundances as preprocess
 import covvfit.plotting as plot
 from covvfit._splines import create_spline_matrix
 
-VERSION = "0.1.0"
+VERSION = "0.3.0"
 
 
 __all__ = [
