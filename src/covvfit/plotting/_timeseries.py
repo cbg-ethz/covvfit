@@ -171,6 +171,7 @@ class AdjustXAxisForTime:
         fmt="%b '%y",
         time_unit: str = "D",
         spacing_months: int = 1,
+        first_tick_date: str = None,
     ) -> None:
         """Adjusts the X ticks, so that the ticks
         are placed at the first day of each month.
@@ -186,6 +187,11 @@ class AdjustXAxisForTime:
         self.time_unit = time_unit
         self.spacing_months = spacing_months
 
+        if first_tick_date is not None:
+            self.first_tick_date = pd.to_datetime(first_tick_date)
+        else:
+            self.first_tick_date = None
+
     def _num_to_date(self, num: pd.Series | Float[Array, " timepoints"]) -> pd.Series:
         """Convert days number into a date format"""
         date = pd.to_datetime(self.start_date) + pd.to_timedelta(num, self.time_unit)
@@ -197,6 +203,7 @@ class AdjustXAxisForTime:
                 start_date=self.start_date,
                 time_unit=self.time_unit,
                 spacing_months=self.spacing_months,
+                first_tick_date=self.first_tick_date,
             )
         )
         ax.xaxis.set_major_formatter(
