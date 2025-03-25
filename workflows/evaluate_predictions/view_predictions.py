@@ -98,10 +98,10 @@ horizons = [0, 7, 14, 21, 30, 60, 90]
 fig, axes = plt.subplots(
     6,
     len(all_configs),
-    figsize=(12, 12),  # Increase figure height to accommodate extra row
+    figsize=(12, 14),  # Increase figure height to accommodate extra row
     # sharex="col",
     sharey="row",
-    gridspec_kw={"hspace": 0.55},  # Adjust vertical spacing
+    gridspec_kw={"hspace": 0.8},  # Adjust vertical spacing
 )
 
 norm = mcolors.Normalize(vmin=min(horizons), vmax=max(horizons))
@@ -362,6 +362,40 @@ for row in range(6):  # 5 rows
             fontweight="bold",
             va="top",
             ha="right",
+        )
+for row in range(0, 3):
+    for col in range(len(all_configs)):
+        ax = axes[row, col]
+        ax.set_xlabel("date")
+for row in range(3, 6):  # Rows g-l (3rd, 4th, 5th row in the figure)
+    for col in range(len(all_configs)):  # Iterate over columns
+        ax = axes[row, col]
+
+        # Set x-axis label
+        ax.set_xlabel("prediction horizon")
+
+        # Add "before" text in the top-left corner
+        ax.text(
+            0.02,  # X position (5% from left)
+            0.9,  # Y position (90% from top)
+            "before",
+            transform=ax.transAxes,  # Relative to axis size
+            fontsize=10,
+            # fontweight="bold",
+            ha="left",
+            va="top",
+        )
+
+        # Add "after" text in the top-middle, right after the vline
+        ax.text(
+            0.52,  # X position (55% from left, slightly after vline)
+            0.9,  # Y position (90% from top)
+            "after",
+            transform=ax.transAxes,
+            fontsize=10,
+            # fontweight="bold",
+            ha="left",
+            va="top",
         )
 
 fig.tight_layout()

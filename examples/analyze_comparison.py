@@ -56,6 +56,7 @@ plt.rcParams["figure.dpi"] = 300
 
 
 # %%
+
 pairwise_res = np.load(
     "../workflows/compare_clinical/results/config_ba1ba2/consolidated_pairwise_wastewater_results.npz"
 )
@@ -440,6 +441,226 @@ def make_plot(
     for ax in axes:
         ax.set_xlim(x_min, x_max)
 
+    clinical_totals = clinical_totals[clinical_totals.index >= x_min]
+    clinical_totals = clinical_totals[clinical_totals.index <= x_max]
+
+    # Print summary statistics
+    print("Clinical Totals Summary:")
+    print(f"  Min:    {clinical_totals.min()}")
+    print(f"  Max:    {clinical_totals.max()}")
+    print(f"  Mean:   {clinical_totals.mean():.2f}")
+    print(f"  Median: {clinical_totals.median()}")
+
+    print("\nWastewater Totals Summary:")
+    print(f"  Min:    {ww_totals.min()}")
+    print(f"  Max:    {ww_totals.max()}")
+    print(f"  Mean:   {ww_totals.mean():.2f}")
+    print(f"  Median: {ww_totals.median()}")
+
+
+# %%
+# Plot
+fig, axes = plt.subplots(4, 2, figsize=(10, 8), sharey="none")
+
+
+variants = ["BA.2.86*", "JN.1*"]
+divisions = ["Zürich", "Geneva", "Ticino", "Graubünden", "Bern", "Sankt Gallen"]
+variants_evaluated = ["BA.2.86*", "JN.1*"]
+reference_variant = "EG.5*"
+folder = "config_jn1"
+
+(
+    config,
+    grouped_ww_data,
+    clin_freq,
+    wastewater_df,
+    clinical_df,
+    grouped_clinical_data,
+    variants_evaluated_index,
+    variants_reference_index,
+    x_min,
+    x_max,
+    merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
+) = load_data(folder, divisions, variants_evaluated, reference_variant).values()
+
+make_plot(
+    axes[:, 1],
+    config,
+    grouped_ww_data,
+    clin_freq,
+    wastewater_df,
+    clinical_df,
+    grouped_clinical_data,
+    variants_evaluated_index,
+    variants_reference_index,
+    x_min,
+    x_max,
+    merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
+)
+
+
+variants = ["BA.1*", "BA.2*"]
+divisions = ["Zürich", "Geneva", "Ticino", "Graubünden", "Bern", "Sankt Gallen"]
+variants_evaluated = ["BA.2*"]
+reference_variant = "BA.1*"
+folder = "config_ba1ba2"
+
+(
+    config,
+    grouped_ww_data,
+    clin_freq,
+    wastewater_df,
+    clinical_df,
+    grouped_clinical_data,
+    variants_evaluated_index,
+    variants_reference_index,
+    x_min,
+    x_max,
+    merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
+) = load_data(folder, divisions, variants_evaluated, reference_variant).values()
+
+make_plot(
+    axes[:, 0],
+    config,
+    grouped_ww_data,
+    clin_freq,
+    wastewater_df,
+    clinical_df,
+    grouped_clinical_data,
+    variants_evaluated_index,
+    variants_reference_index,
+    x_min,
+    x_max,
+    merged_ww_data,
+    pairwise_ww_res,
+    pairwise_clin_res,
+)
+
+axes[0, 1].set_xlim([pd.to_datetime("2023-08-01"), pd.to_datetime("2024-01-01")])
+axes[1, 1].set_xlim([pd.to_datetime("2023-08-01"), pd.to_datetime("2024-01-01")])
+axes[2, 1].set_xlim([pd.to_datetime("2023-08-01"), pd.to_datetime("2024-01-01")])
+axes[3, 1].set_xlim([pd.to_datetime("2023-08-01"), pd.to_datetime("2024-01-01")])
+axes[0, 0].set_ylim([0, 1])
+axes[0, 1].set_ylim([0, 1])
+
+cutoffs = [0.025, 0.05, 0.10]  # Cutoff values
+break_dates = pd.to_datetime(
+    [
+        "2022-01-15 00:00:00",
+        "2022-01-20 12:00:00",
+        "2022-01-28 12:00:00",
+        "2023-10-14 12:00:00",
+        "2023-10-19 00:00:00",
+        "2023-10-27 00:00:00",
+    ]
+)
+
+# First three vlines for axes[0,0] and axes[1,0]
+for i in range(3):
+    for ax in [axes[0, 0], axes[1, 0], axes[2, 0]]:
+        ax.axvline(
+            x=break_dates[i],
+            color="black",
+            linestyle="dashed",
+            linewidth=1,
+        )
+        ax.text(
+            break_dates[i],
+            ax.get_ylim()[1] * 0.9,  # Position at 90% of y-axis max
+            f"{cutoffs[i] * 100}%",
+            color="black",
+            fontsize=10,
+            ha="right",
+            va="top",
+            rotation=90,
+        )
+
+# Next three vlines for axes[0,1] and axes[1,1]
+for i in range(3, 6):
+    for ax in [axes[0, 1], axes[1, 1], axes[2, 1]]:
+        ax.axvline(
+            x=break_dates[i],
+            color="black",
+            linestyle="dashed",
+            linewidth=1,
+        )
+        ax.text(
+            break_dates[i],
+            ax.get_ylim()[1] * 0.9,  # Position at 90% of y-axis max
+            f"{cutoffs[i-3] * 100}%",  # Using the same labels for both sets
+            color="black",
+            fontsize=10,
+            ha="right",
+            va="top",
+            rotation=90,
+        )
+
+
+# axes[2,0].set_yscale("log")
+# axes[2,1].set_yscale("log")
+
+# Collect legend handles and labels from all axes
+handles = []
+labels = []
+for ax in axes.flat:  # Iterate through all axes in the figure
+    h, l = ax.get_legend_handles_labels()
+    handles.extend(h)
+    labels.extend(l)
+
+# Deduplicate legend entries
+unique_legend = {}
+unique_handles = []
+for handle, label in zip(handles, labels):
+    if label not in unique_legend:
+        unique_legend[label] = handle
+        unique_handles.append((handle, label))
+
+# Create custom line handles for Wastewater and Clinical
+wastewater_line = mlines.Line2D(
+    [], [], color="black", linestyle="-", label="Wastewater"
+)
+clinical_line = mlines.Line2D([], [], color="black", linestyle="--", label="Clinical")
+
+# Add custom handles to the legend
+unique_handles.insert(0, (wastewater_line, "Wastewater"))
+unique_handles.insert(1, (clinical_line, "Clinical"))
+
+# Apply the deduplicated legend
+fig.legend(
+    [h for h, _ in unique_handles],
+    [l for _, l in unique_handles],
+    loc="center left",
+    bbox_to_anchor=(1, 0.5),
+)
+
+import string
+
+# Generate panel labels: a, b, c, d, e, f, g, ...
+panel_labels = list(string.ascii_lowercase)
+# Loop through all subplots and label them
+for i, ax in enumerate(axes.flatten()):
+    ax.text(
+        -0.1,
+        1.2,  # Position: slightly above each subplot
+        panel_labels[i],  # Get the next letter
+        transform=ax.transAxes,  # Use subplot-relative coordinates
+        fontsize=12,
+        fontweight="bold",
+        va="top",
+        ha="right",
+    )
+
+
+# fig.legend(loc="center left", bbox_to_anchor=(1, 0.5))
+# Ensure layout is correct
+plt.tight_layout()
+plt.show()
 
 # %%
 # Plot
@@ -638,6 +859,16 @@ for i, ax in enumerate(axes.flatten()):
         va="top",
         ha="right",
     )
+axes[3, 0].set_yscale("log")
+axes[3, 1].set_yscale("log")
+
+# Get the current y-limits to synchronize them
+y_min = min(axes[3, 0].get_ylim()[0], axes[3, 1].get_ylim()[0])
+y_max = max(axes[3, 0].get_ylim()[1], axes[3, 1].get_ylim()[1])
+
+# Apply the same y-limits to both axes
+axes[3, 0].set_ylim(y_min, y_max)
+axes[3, 1].set_ylim(y_min, y_max)
 
 
 # fig.legend(loc="center left", bbox_to_anchor=(1, 0.5))

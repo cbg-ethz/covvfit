@@ -166,9 +166,11 @@ rule filter_and_normalize_data:
         start_date=config["filter"]["start_date"],
         end_date=config["filter"]["end_date"],
         divisions=config["filter"]["divisions"],
-        variants=config["variant_list"]
+        variants=config["variant_list"],
+        subsample_n=config.get("subsample_n", None)  # Handle missing parameter
     run:
         import pandas as pd
+        import numpy as np
 
         def filter_data(df, start_date, end_date, divisions):
             mask = (
@@ -177,6 +179,19 @@ rule filter_and_normalize_data:
                 & (df["division"].isin(divisions))
             )
             return df[mask].copy()
+        
+        def subsample_data(df, subsample_n, variant_list):
+            def resample_group(group):
+                total_variant_counts = group[variant_list].sum(axis=1).values[0]
+                if total_variant_counts <= subsample_n:
+                    return group
+                proportions = group[variant_list].values[0] / total_variant_counts
+                resampled_counts = np.random.multinomial(subsample_n, proportions)
+                new_group = group.copy()
+                new_group[variant_list] = resampled_counts
+                return new_group
+    
+            return df.groupby(["date", "division"], group_keys=False).apply(resample_group)
 
         def normalize_data(df, variant_list):
             variant_columns = variant_list
@@ -192,9 +207,11 @@ rule filter_and_normalize_data:
         filtered_df = filter_data(
             merged_df, params.start_date, params.end_date, params.divisions
         )
-        filtered_df = normalize_data(filtered_df, params.variants)
-
-        filtered_df.to_csv(output[0], index=False)
+        if params.subsample_n is not None:
+            filtered_df = subsample_data(filtered_df, params.subsample_n, params.variants)
+        normalized_df = normalize_data(filtered_df, params.variants)
+        
+        normalized_df.to_csv(output[0], index=False)
 
 # Rule to fit clinical data
 rule fit_clinical_data:
