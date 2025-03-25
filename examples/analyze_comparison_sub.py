@@ -10,7 +10,6 @@
 #     display_name: jax3
 #     language: python
 #     name: jax3
-
 # ---
 
 # %%
@@ -626,8 +625,9 @@ for i, ax in enumerate(axes.flatten()):
         ha="right",
     )
 
-
-# fig.legend(loc="center left", bbox_to_anchor=(1, 0.5))
-# Ensure layout is correct
 plt.tight_layout()
+
+plt.savefig("figures/supplementary_figure1.pdf", bbox_inches="tight")
+plt.savefig("figures/supplementary_figure1.png", bbox_inches="tight")
+
 plt.show()

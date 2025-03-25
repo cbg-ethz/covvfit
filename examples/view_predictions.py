@@ -454,4 +454,8 @@ fig.legend(
     handles, labels, loc="center left", bbox_to_anchor=(1, 0.5), title="horizon (days)"
 )
 fig.tight_layout()
+
+plt.savefig("figures/supplementary_figure4.pdf", bbox_inches="tight")
+plt.savefig("figures/supplementary_figure4.png", bbox_inches="tight")
+
 plt.show()
