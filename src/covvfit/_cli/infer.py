@@ -1,11 +1,12 @@
 """Script running Covvfit inference on the data."""
+import warnings
 from pathlib import Path
 from typing import Annotated, NamedTuple, Optional
 
 import jax
 import jax.numpy as jnp
 import matplotlib.patches as mpatches
-import matplotlib.ticker as ticker
+import numpy as np
 import pandas as pd
 import pydantic
 import typer
@@ -17,86 +18,162 @@ import covvfit.plotting as plot
 
 plot_ts = plot.timeseries
 
-_TIME_COL = "time"
-_CITY_COL = "city"
+
+class _InputDates(NamedTuple):
+    min_date: Optional[str]
+    max_date: Optional[str]
+    max_days: int
+
+    horizon: int
+    horizon_max_date: Optional[str]
+
+
+class _ParsedDates(NamedTuple):
+    start_date: pd.Timestamp
+    max_date: pd.Timestamp
+    horizon_date: pd.Timestamp
+
+    @property
+    def horizon(self) -> int:
+        return (self.horizon_date - self.max_date).days
+
+    @property
+    def total_length(self) -> int:
+        return (self.horizon_date - self.start_date).days
+
+
+def _parse_dates(raw: _InputDates, series: pd.Series) -> _ParsedDates:
+    """Parses the user-provided dates."""
+    series = pd.to_datetime(series)
+
+    # First, infer the `max_date` for the data
+    if raw.max_date is None:
+        max_date = series.max()
+    else:
+        max_date = pd.to_datetime(raw.max_date)
+
+    # Next, infer the `start_date`
+    if raw.min_date is not None:
+        start_date = pd.to_datetime(raw.min_date)
+    else:
+        start_date = max_date - pd.to_timedelta(raw.max_days, unit="D")
+
+    # Finally, infer the horizon date
+    if raw.horizon_max_date is not None:
+        horizon_date = pd.to_datetime(raw.horizon_max_date)
+    else:
+        horizon_date = max_date + pd.to_timedelta(raw.horizon, unit="D")
+
+    parsed = _ParsedDates(
+        start_date=start_date, max_date=max_date, horizon_date=horizon_date
+    )
+
+    if parsed.horizon <= 0:
+        raise ValueError("Inferred horizon is less than 1.")
+
+    return parsed
+
+
+class _Columns(NamedTuple):
+    variant: str
+    proportion: str
+    date: str
+    location: str
 
 
 class _ProcessedData(NamedTuple):
-    dataframe: pd.DataFrame
+    # dataframe: pd.DataFrame
+    timepoints: list[np.ndarray]
+    proportions: list[np.ndarray]
+
     cities: list[str]
     variants_effective: list[str]
-    start_date: pd.Timestamp
+
+    dates: _ParsedDates
 
 
 def _process_data(
     *,
     data_path: str,
     data_separator: str,
+    other_threshold: Optional[float],
     variants_investigated: list[str],
-    variant_dates: str,
-    max_days: int,
-    variant_col: str,
-    proportion_col: str,
-    date_col: str,
-    location_col: str,
+    locations_investigated: Optional[list[str]],
+    dates: _InputDates,
+    columns: _Columns,
 ) -> _ProcessedData:
+    # Read the data
     data = pd.read_csv(data_path, sep=data_separator)
+    for col in columns:
+        if col not in data.columns:
+            raise ValueError(
+                f"Column {col} not found. Available columns: {data.columns}."
+            )
 
-    with open(variant_dates) as file:
-        var_dates_data = yaml.safe_load(file)
-        # Access the var_dates data
-        var_dates = var_dates_data["var_dates"]
+    # If `locations_investigated` is specified, select the data
+    if locations_investigated is not None:
+        data = data[data[columns.location].isin(locations_investigated)]
 
-    data_wide = data.pivot_table(
-        index=[date_col, location_col],
-        columns=variant_col,
-        values=proportion_col,
-        fill_value=0,
-    ).reset_index()
-    data_wide = data_wide.rename(columns={date_col: _TIME_COL, location_col: _CITY_COL})
+    # Define the list with cities
+    cities = list(data[columns.location].unique())
+    if len(cities) == 0:
+        raise ValueError(
+            f"Length of cities is 0. Prespecified locations: {locations_investigated}."
+        )
 
-    # Define the list with cities:
-    cities = list(data_wide[_CITY_COL].unique())
-
-    ## Set limit times for modeling
-
-    max_date = pd.to_datetime(data_wide[_TIME_COL]).max()
-    delta_time = pd.Timedelta(days=max_days)
-    start_date = max_date - delta_time
-
-    var_dates_parsed = {
-        pd.to_datetime(date): variants for date, variants in var_dates.items()
-    }
-
-    def match_date(start_date):
-        """Function to find the latest matching date in var_dates."""
-        start_date = pd.to_datetime(start_date)
-        closest_date = max(date for date in var_dates_parsed if date <= start_date)
-        return closest_date, var_dates_parsed[closest_date]
-
-    variants_full = match_date(start_date + delta_time)[
-        1
-    ]  # All the variants in this range
-
-    variants_other = [
-        i for i in variants_full if i not in variants_investigated
-    ]  # Variants not of interest
-
-    variants_effective = ["other"] + variants_investigated
-    data_full = preprocess.preprocess_df(
-        data_wide, cities, variants_full, date_min=start_date, zero_date=start_date
+    # Now parse the dates and select the data in the right range
+    data[columns.date] = pd.to_datetime(data[columns.date])
+    parsed_dates = _parse_dates(raw=dates, series=data[columns.date])
+    _mask = (data[columns.date] >= parsed_dates.start_date) & (
+        data[columns.date] <= parsed_dates.max_date
     )
+    data = data[_mask]
 
-    data_full["other"] = data_full[variants_other].sum(axis=1)
-    data_full[variants_effective] = data_full[variants_effective].div(
-        data_full[variants_effective].sum(axis=1), axis=0
+    if len(data) == 0:
+        raise ValueError("There are no data in the specified range.")
+
+    # Construct the pivot table
+    data_wide = data.pivot_table(
+        index=[columns.date, columns.location],
+        columns=columns.variant,
+        values=columns.proportion,
+        fill_value=0.0,
+    )
+    # variants_full = data_wide.columns.tolist()
+    data_wide = data_wide.reset_index()
+
+    DAYS_COL = "days_from"
+    data_wide[DAYS_COL] = (data_wide[columns.date] - parsed_dates.start_date).dt.days
+
+    # Add the "other" variant
+    OTHER_COL = "other"
+    variants_effective = [OTHER_COL] + variants_investigated
+    data_wide[OTHER_COL] = 1.0 - data_wide[variants_investigated].sum(axis=1)
+
+    # Ensure that the value is not negative (we allow small discrepancy because of float arithmetic)
+    _NEGATIVE_THRESHOLD: float = -1e-7
+    if data_wide[OTHER_COL].min() < _NEGATIVE_THRESHOLD:
+        raise ValueError(f"Negative value encountered, {data_wide[OTHER_COL].min()}.")
+
+    # Finally, remove points whether OTHER_COL has too large value
+    if other_threshold is not None:
+        data_wide = data_wide[data_wide[OTHER_COL] <= other_threshold]
+
+    timepoints, proportions = preprocess.make_data_list(
+        data_wide,
+        cities=cities,
+        variants=variants_effective,
+        city_col=columns.location,
+        time_col=DAYS_COL,
+        allow_for_undefined_behaviour=False,
     )
 
     return _ProcessedData(
-        dataframe=data_full,
+        timepoints=timepoints,
+        proportions=proportions,
         cities=cities,
         variants_effective=variants_effective,
-        start_date=start_date,
+        dates=parsed_dates,
     )
 
 
@@ -118,32 +195,85 @@ class PlotDimensions(pydantic.BaseModel):
     panel_height: float = 1.5
     dpi: int = 350
 
-    wspace: float = 1.0
-    hspace: float = 0.5
+    wspace: float = pydantic.Field(
+        default=1.0, help="Horizontal (width) spacing between figure panels."
+    )
+    hspace: float = pydantic.Field(
+        default=0.5, help="Vertical (height) spacing between figure panels."
+    )
 
-    left: float = 1.0
-    right: float = 1.5
-    top: float = 0.7
-    bottom: float = 0.5
+    left: float = pydantic.Field(default=1.0, help="Left margin in the figure.")
+    right: float = pydantic.Field(default=1.5, help="Right margin in the figure.")
+    top: float = pydantic.Field(default=0.7, help="Top margin in the figure.")
+    bottom: float = pydantic.Field(default=0.5, help="Bottom margin in the figure.")
 
 
 class PlotSettings(pydantic.BaseModel):
     dimensions: PlotDimensions = pydantic.Field(default_factory=PlotDimensions)
     prediction: PredictionRegion = pydantic.Field(default_factory=PredictionRegion)
     variant_colors: dict[str, str] = pydantic.Field(
-        default_factory=lambda: plot_ts.COLORS_COVSPECTRUM
+        default_factory=lambda: plot_ts.COLORS_COVSPECTRUM,
+        help="Dictionary mapping variants to colors in the plot.",
+    )
+    time_spacing: Annotated[int, pydantic.Field(strict=True, ge=1)] = pydantic.Field(
+        default=2, help="Spacing between ticks on the time axis (in months)."
+    )
+    backend: Optional[str] = pydantic.Field(
+        default=None, help="Matplotlib backend to use."
+    )
+    extensions: list[str] = pydantic.Field(
+        default_factory=lambda: ["png", "pdf"],
+        help="Extensions to which the figure should be exported.",
+    )
+    dpi: Annotated[int, pydantic.Field(strict=True, ge=1)] = pydantic.Field(
+        default=500, help="DPI changes the figure resolution."
+    )
+
+
+class AnalysisSettings(pydantic.BaseModel):
+    residuals_p1mp: bool = pydantic.Field(
+        default=False, help="Whether to use p(1-p) in the variance formula."
+    )
+    data_separator: str = pydantic.Field(default="\t", help="Data separator.")
+    n_starts: Annotated[int, pydantic.Field(strict=True, ge=1)] = pydantic.Field(
+        default=10, help="Number of random starts in the optimization procedure."
+    )
+    other_threshold: Optional[float] = pydantic.Field(
+        default=None,
+        help="If the proportion of other variants (not investigated) exceeds this value, the data point will be removed.",
     )
 
 
 class Config(pydantic.BaseModel):
-    variants: list[str] = pydantic.Field(default_factory=lambda: [])
-    plot: PlotSettings = pydantic.Field(default_factory=PlotSettings)
+    variants: list[str] = pydantic.Field(
+        default_factory=lambda: [],
+        help="List of variants to be included in the analysis.",
+    )
+    locations: Optional[list[str]] = pydantic.Field(
+        default=None,
+        help="List of locations to be included in the analysis. If `None`, all locations are used.",
+    )
+    plot: PlotSettings = pydantic.Field(
+        default_factory=PlotSettings, help="Plot settings."
+    )
+    analysis: AnalysisSettings = pydantic.Field(
+        default_factory=AnalysisSettings, help="Analysis settings."
+    )
 
 
 def _parse_config(
     config_path: Optional[str],
     variants: Optional[list[str]],
+    locations: Optional[list[str]],
+    time_spacing: Optional[int],
+    data_separator: Optional[str],
+    residuals_p1mp: bool,
 ) -> Config:
+    if variants is None and config_path is None:
+        raise ValueError(
+            "The variant names are not specified. Use `--config` argument or `-v` to specify them."
+        )
+
     if config_path is None:
         config = Config()
     else:
@@ -151,37 +281,78 @@ def _parse_config(
             payload = yaml.safe_load(fh)
         config = Config(**payload)
 
+    # Overwrite variants, if specified
     if variants is not None:
         config.variants = variants
-
     if len(config.variants) == 0:
         raise ValueError("No variants have been specified.")
+
+    if locations is not None:
+        config.locations = locations
+    if config.locations is not None and len(config.locations) == 0:
+        raise ValueError("No locations have been specified.")
+
+    # Overwrite time spacing, if specified
+    if time_spacing is not None:
+        config.plot.time_spacing = time_spacing
+
+    # Overwrite the data separator
+    if data_separator is not None:
+        config.analysis.data_separator = data_separator
+
+    # Overwrite residuals calculation
+    if residuals_p1mp is True:
+        config.analysis.residuals_p1mp = True
 
     return config
 
 
+class _OutputDir(NamedTuple):
+    output_path: str
+    overwrite: bool
+
+    def create(self) -> Path:
+        output = Path(self.output_path)
+        output.mkdir(parents=True, exist_ok=self.overwrite)
+        return output
+
+
 def infer(
-    data: Annotated[str, typer.Argument(help="CSV with deconvolved data")],
-    variant_dates: Annotated[str, typer.Argument(help="YAML file with variant dates")],
-    output: Annotated[str, typer.Argument(help="Output directory")],
+    data: Annotated[
+        str, typer.Option("--input", "-i", help="CSV with deconvolved data")
+    ],
+    output: Annotated[str, typer.Option("--output", "-o", help="Output directory")],
     config: Annotated[
         Optional[str],
-        typer.Option("--config", help="Path to the YAML file with configuration."),
+        typer.Option(
+            "--config", "-c", help="Path to the YAML file with configuration."
+        ),
     ] = None,
     var: Annotated[
         Optional[list[str]],
         typer.Option(
             "--var",
             "-v",
-            help="Variant names to be included in the analysis. Note: override the settings in the config file (--config).",
+            help="Variant names to be included in the analysis. Note: overrides the settings in the config file (--config).",
+        ),
+    ] = None,
+    locations: Annotated[
+        Optional[list[str]],
+        typer.Option(
+            "--loc",
+            "-l",
+            help="Location names to be included in the analysis. Note: overrides the settings in the config file (--config).",
         ),
     ] = None,
     data_separator: Annotated[
         str,
         typer.Option(
-            "--data-separator", help="Separator to be used to read the CSV file."
+            "--separator",
+            "-s",
+            help="Data separator used to read the input file. "
+            "By default read from the config file (if not specified, the TAB character).",
         ),
-    ] = "\t",
+    ] = None,
     max_days: Annotated[
         int,
         typer.Option(
@@ -189,6 +360,20 @@ def infer(
             help="Number of the past dates to which the analysis will be restricted",
         ),
     ] = 240,
+    date_min: Annotated[
+        str,
+        typer.Option(
+            "--date-min",
+            help="Minimum date to start load data in format YYYY-MM-DD. By default calculated using `--max_days` and `--date-max`.",
+        ),
+    ] = None,
+    date_max: Annotated[
+        str,
+        typer.Option(
+            "--date-max",
+            help="Maximum date to finish loading data, provided in format YYYY-MM-DD. By default calculated as the last date in the CSV file.",
+        ),
+    ] = None,
     horizon: Annotated[
         int,
         typer.Option(
@@ -196,6 +381,20 @@ def infer(
             help="Number of future days for which abundance prediction should be generated",
         ),
     ] = 60,
+    horizon_date: Annotated[
+        str,
+        typer.Option(
+            "--horizon-date",
+            help="Date until when the predictions should occur, provided in format YYYY-MM-DD. By default calculated using `--horizon` and `--date-max`.",
+        ),
+    ] = None,
+    time_spacing: Annotated[
+        Optional[int],
+        typer.Option(
+            "--time-spacing",
+            help="Spacing between ticks on the time axis in months",
+        ),
+    ] = None,
     variant_col: Annotated[
         str,
         typer.Option(
@@ -219,50 +418,114 @@ def infer(
         str,
         typer.Option("--location-col", help="Name of the column with spatial location"),
     ] = "location",
-    matplotlib_backend: Annotated[
-        Optional[str],
-        typer.Option("--matplotlib-backend", help="Matplotlib backend to use"),
-    ] = None,
+    overwrite_output: Annotated[
+        bool,
+        typer.Option(
+            "--overwrite-output",
+            help="Allows overwriting the output directory, if it already exists. Note: this may result in unintented loss of data.",
+        ),
+    ] = False,
+    residuals_p1mp: Annotated[
+        bool,
+        typer.Option(
+            "--residuals-p1mp",
+            help="If True, to calculate the overdispersion we will use `p_i(1-p_i)` in the denominator."
+            "If False (default), we use `p_i` in the denominator.",
+        ),
+    ] = False,
 ) -> None:
     """Runs growth advantage inference."""
-    _set_matplotlib_backend(matplotlib_backend)
-
-    if var is None and config is None:
-        raise ValueError(
-            "The variant names are not specified. Use `--config` argument or `-v` to specify them."
-        )
-
-    config: Config = _parse_config(config_path=config, variants=var)
-
-    variants_investigated = config.variants
-
-    bundle = _process_data(
-        data_path=data,
-        data_separator=data_separator,
-        variants_investigated=variants_investigated,
-        variant_dates=variant_dates,
-        max_days=max_days,
-        variant_col=variant_col,
-        proportion_col=proportion_col,
-        date_col=date_col,
-        location_col=location_col,
+    # Ignore warnings with JAX converting arrays from 64-bit to 32-bit
+    warnings.filterwarnings(
+        "ignore",
+        message=r"Explicitly requested dtype float64 requested in zeros.*",
+        category=UserWarning,
     )
 
-    output = Path(output)
-    output.mkdir(parents=True, exist_ok=False)
+    # Assemble input information into structured objects
+
+    # --- Parse config and update it with appropriate command-line arguments
+    config: Config = _parse_config(
+        config_path=config,
+        variants=var,
+        locations=locations,
+        time_spacing=time_spacing,
+        data_separator=data_separator,
+        residuals_p1mp=residuals_p1mp,
+    )
+    # --- Parse column specification in the CSV file
+    columns = _Columns(
+        variant=variant_col,
+        proportion=proportion_col,
+        date=date_col,
+        location=location_col,
+    )
+    # --- Parse the provided input dates
+    input_dates = _InputDates(
+        min_date=date_min,
+        max_date=date_max,
+        max_days=max_days,
+        horizon=horizon,
+        horizon_max_date=horizon_date,
+    )
+    # --- Parse the output directory specification
+    output_dir = _OutputDir(output_path=output, overwrite=overwrite_output)
+
+    # Call the function processing the structured information
+    # to obtain data analysis results
+    _main(
+        data_path=data,
+        config=config,
+        columns=columns,
+        dates=input_dates,
+        output=output_dir,
+    )
+
+
+def _main(
+    *,
+    data_path: str,
+    config: Config,
+    dates: _InputDates,
+    columns: _Columns,
+    output: _OutputDir,
+) -> None:
+    # Read the variants
+    variants_investigated = config.variants
+    # Set matplotlib backend
+    _set_matplotlib_backend(config.plot.backend)  # Set matplotlib backend using config.
+
+    # Process data
+    bundle = _process_data(
+        data_path=data_path,
+        data_separator=config.analysis.data_separator,
+        other_threshold=config.analysis.other_threshold,
+        variants_investigated=variants_investigated,
+        locations_investigated=config.locations,
+        dates=dates,
+        columns=columns,
+    )
+    del columns  # The columns should not be needed anymore in this function
+
+    # Prepare the output path
+    output: Path = output.create()
+
+    # Save the config file
+    with open(output / "config.yaml", "w") as fh:
+        yaml.safe_dump(config.model_dump(), fh)
 
     def pprint(message):
+        # TODO(Pawel): Consider setting up a proper logger.
         with open(output / "log.txt", "a") as file:
             file.write(message + "\n")
         print(message)
 
     cities = bundle.cities
     variants_effective = bundle.variants_effective
-    start_date = bundle.start_date
+    start_date = bundle.dates.start_date
+    horizon: int = bundle.dates.horizon  # The prediction horizon
 
-    ts_lst, ys_effective = preprocess.make_data_list(
-        bundle.dataframe, cities=cities, variants=variants_effective
-    )
+    ts_lst, ys_effective = bundle.timepoints, bundle.proportions
 
     # Scale the time for numerical stability
     time_scaler = preprocess.TimeScaler()
@@ -281,7 +544,9 @@ def infer(
     theta0 = qm.construct_theta0(n_cities=len(cities), n_variants=n_variants_effective)
 
     # Run the optimization routine
-    solution = qm.jax_multistart_minimize(loss, theta0, n_starts=10)
+    solution = qm.jax_multistart_minimize(
+        loss, theta0, n_starts=config.analysis.n_starts
+    )
 
     theta_star = solution.x  # The maximum quasilikelihood estimate
 
@@ -314,6 +579,7 @@ def infer(
     overdispersion_tuple = qm.compute_overdispersion(
         observed=ys_effective,
         predicted=ys_fitted,
+        p1mp=config.analysis.residuals_p1mp,
     )
 
     overdisp_fixed = overdispersion_tuple.overall
@@ -330,14 +596,27 @@ def infer(
         theta_star, standard_errors_estimates, confidence_level=0.95
     )
 
-    pprint("\n\nRelative growth advantages:")
+    pprint("\n\nRelative growth advantages (per day):")
     for variant, m, low, up in zip(
         variants_effective[1:],
         qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
         qm.get_relative_growths(confints_estimates[0], n_variants=n_variants_effective),
         qm.get_relative_growths(confints_estimates[1], n_variants=n_variants_effective),
     ):
-        pprint(f"  {variant}: {float(m):.2f} ({float(low):.2f} – {float(up):.2f})")
+        pprint(
+            f"  {variant}: {float(m)/ time_scaler.time_unit :.4f} ({float(low) / time_scaler.time_unit:.4f} – {float(up) / time_scaler.time_unit :.4f})"
+        )
+
+    pprint("\n\nRelative growth advantages (per week):")
+    for variant, m, low, up in zip(
+        variants_effective[1:],
+        qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
+        qm.get_relative_growths(confints_estimates[0], n_variants=n_variants_effective),
+        qm.get_relative_growths(confints_estimates[1], n_variants=n_variants_effective),
+    ):
+        pprint(
+            f"  {variant}: {DAYS_IN_A_WEEK * float(m)/ time_scaler.time_unit :.4f} ({DAYS_IN_A_WEEK * float(low) / time_scaler.time_unit:.4f} – {DAYS_IN_A_WEEK * float(up) / time_scaler.time_unit :.4f})"
+        )
 
     # Generate predictions
     ys_fitted_confint = qm.get_confidence_bands_logit(
@@ -364,9 +643,79 @@ def infer(
         covariance=covariance_scaled,
     )
 
-    # Create a plot
+    # Output pairwise fitness advantages
 
-    colors = [config.plot.variant_colors[var] for var in variants_investigated]
+    def make_relative_growths(theta_star):
+        relative_growths = (
+            qm.get_relative_growths(theta_star, n_variants=n_variants_effective)
+            - time_scaler.t_min
+        ) / (time_scaler.t_max - time_scaler.t_min)
+        relative_growths = jnp.concat([jnp.array([0]), relative_growths])
+        relative_growths = relative_growths * DAYS_IN_A_WEEK
+
+        pairwise_diff = jnp.expand_dims(relative_growths, axis=1) - jnp.expand_dims(
+            relative_growths, axis=0
+        )
+
+        return pairwise_diff
+
+    pairwise_diffs = make_relative_growths(theta_star)
+    jacob = jax.jacobian(make_relative_growths)(theta_star)
+    standerr_relgrowths = qm.get_standard_errors(covariance_scaled, jacob)
+    relgrowths_confint = qm.get_confidence_intervals(
+        make_relative_growths(theta_star), standerr_relgrowths, 0.95
+    )
+
+    df_diffs = (
+        pd.DataFrame(
+            pairwise_diffs, index=variants_effective, columns=variants_effective
+        )
+        .reset_index()
+        .melt(id_vars="index")
+    )
+    df_diffs.columns = ["Variant", "Reference_Variant", "Estimate"]
+
+    # Create confidence interval DataFrames
+    df_lower = (
+        pd.DataFrame(
+            relgrowths_confint[0], index=variants_effective, columns=variants_effective
+        )
+        .reset_index()
+        .melt(id_vars="index")
+    )
+    df_upper = (
+        pd.DataFrame(
+            relgrowths_confint[1], index=variants_effective, columns=variants_effective
+        )
+        .reset_index()
+        .melt(id_vars="index")
+    )
+
+    df_lower.columns = ["Variant", "Reference_Variant", "Lower_CI"]
+    df_upper.columns = ["Variant", "Reference_Variant", "Upper_CI"]
+
+    # Merge all data
+    df_final = df_diffs.merge(df_lower, on=["Variant", "Reference_Variant"]).merge(
+        df_upper, on=["Variant", "Reference_Variant"]
+    )
+    df_final.to_csv(
+        output / "pairwise_fitnesses.csv",
+        sep=config.analysis.data_separator,
+        index=False,
+    )
+
+    pprint("\n\nRelative fitness values:")
+    for _, row in df_final.iterrows():
+        if row["Variant"] == row["Reference_Variant"]:
+            continue
+        pprint(
+            f"  {row['Variant']} / {row['Reference_Variant']}:\t{row['Estimate']:.3f} ({row['Lower_CI']:.3f} – {row['Upper_CI']:.3f})"
+        )
+
+    # Create a plot
+    colors = [
+        config.plot.variant_colors.get(var, "black") for var in variants_investigated
+    ]
 
     plot_dimensions = config.plot.dimensions
 
@@ -379,6 +728,7 @@ def infer(
         bottom=plot_dimensions.bottom,
         left=plot_dimensions.left,
         right=plot_dimensions.right,
+        sharex=True,
     )
 
     def plot_city(ax, i: int) -> None:
@@ -392,9 +742,11 @@ def infer(
         prediction_linestyle = config.plot.prediction.linestyle
         ax.axvspan(
             jnp.min(ts_pred_lst[i]),
-            jnp.max(ts_pred_lst[i]),
+            bundle.dates.total_length,
             color=prediction_region_color,
             alpha=prediction_region_alpha,
+            edgecolor=None,
+            linewidth=None,
         )
 
         # Plot fits in observed and unobserved time intervals.
@@ -433,12 +785,13 @@ def infer(
             alpha=0.3,
         )
 
-        # format axes and title
-        def format_date(x, pos):
-            return plot_ts.num_to_date(x, date_min=start_date)
+        adjust_axis_fn = plot_ts.AdjustXAxisForTime(
+            start_date, spacing_months=config.plot.time_spacing
+        )
+        adjust_axis_fn(ax)
 
-        date_formatter = ticker.FuncFormatter(format_date)
-        ax.xaxis.set_major_formatter(date_formatter)
+        ax.set_xlim(-0.5, bundle.dates.total_length + 0.5)
+        ax.set_ylim(-0.01, 1.01)
         tick_positions = [0, 0.5, 1]
         tick_labels = ["0%", "50%", "100%"]
         ax.set_yticks(tick_positions)
@@ -454,4 +807,5 @@ def infer(
     ]
     figure_spec.fig.legend(handles=handles, loc="outside center right", frameon=False)
 
-    figure_spec.fig.savefig(output / "figure.pdf")
+    for ext in config.plot.extensions:
+        figure_spec.fig.savefig(output / f"figure.{ext}", dpi=config.plot.dpi)

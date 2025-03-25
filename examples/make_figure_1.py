@@ -376,25 +376,8 @@ def plot_city(ax, i: int) -> None:
 
     # Plot the complements
     plot_ts.plot_complement(ax, ts_lst[i], remove_0th(ys_fitted[i]), alpha=0.3)
-    # plot_ts.plot_complement(
-    #     ax, ts_pred_lst[i], remove_0th(ys_pred[i]), linestyle="--", alpha=0.3
-    # )
 
-    # Ensure that ticks appear only at January 1st of each year
-    ax.xaxis.set_major_locator(mdates.YearLocator())  # Major ticks at each new year
-
-    # Define a function to format the date labels
-    def format_date(x, pos):
-        """Convert numeric x-axis values to a date and return only the year (YYYY)."""
-        return plot_ts.num_to_date(x, date_min=start_date, fmt="%Y")  # Year only
-
-    # Apply the custom formatter
-    date_formatter = ticker.FuncFormatter(format_date)
-    ax.xaxis.set_major_formatter(date_formatter)  # Use year-only formatting
-
-    # Ensure x-axis values are treated as dates
-    ax.xaxis_date()
-
+    plot_ts.AdjustXAxisForTime(start_date)(ax)
     tick_positions = [0, 0.5, 1]
     tick_labels = ["0%", "50%", "100%"]
     ax.set_yticks(tick_positions)

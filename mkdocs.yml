@@ -44,6 +44,7 @@ nav:
   - Command line workflow: cli.md
   - API Reference: api/index.md
   - Statistical models: models.md
+  - For developers: developers.md
 
 repo_name: covvfit
 repo_url: https://github.com/cbg-ethz/covvfit

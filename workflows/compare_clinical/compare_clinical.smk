@@ -871,15 +871,13 @@ rule plot_fitted_values:
             # plot_ts.plot_complement(ax, ts_lst[i], remove_0th(ys_fitted[i]), alpha=0.3)
             # plot_ts.plot_complement(ax, ts_pred_lst[i], remove_0th(ys_pred[i]), linestyle="--", alpha=0.3)
 
-            def format_date(x, pos):
-                return plot_ts.num_to_date(x, date_min=start_date)
-
-            date_formatter = ticker.FuncFormatter(format_date)
-            ax.xaxis.set_major_formatter(date_formatter)
-            ax.set_yticks([0, 0.5, 1])
             time_scaler_data = preprocess.TimeScaler()
             time_scaler_data.fit(ts_lst_raw)
             ax.set_xlim((time_scaler_data.t_min, time_scaler_data.t_max))
+            adjust_fn = plot_ts.AdjustXAxisForTime(start_date)
+            adjust_fn(ax)
+
+            ax.set_yticks([0, 0.5, 1])
             ax.set_yticklabels(["0%", "50%", "100%"])
             ax.set_ylabel("Relative abundances")
             ax.set_title(cities[i])

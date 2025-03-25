@@ -3,6 +3,7 @@
 import matplotlib.lines as mlines
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.ticker as ticker
 import numpy as np
 import pandas as pd
 from jaxtyping import Array, Float
@@ -30,9 +31,9 @@ COLORS_COVSPECTRUM: dict[Variant, Color] = {
     "BA.2.86": "#FF20E0",
     # TODO(Pawel, David): Use consistent colors with Covspectrum
     "JN.1": "#00e9ff",  # improv
-    "KP.2": "#D16666",  # improv
-    "KP.3": "#66A366",  # improv
-    "XEC": "#A366A3",  # improv
+    "KP.2": "#876566",
+    "KP.3": "#331eee",
+    "XEC": "#a2a626",
     "undetermined": "#969696",
 }
 
@@ -63,6 +64,151 @@ def make_legend(colors: list[Color], variants: list[Variant]) -> list[mpatches.P
     ]
 
     return handles
+
+
+class _MonthStartLocator(ticker.Locator):
+    """
+    A custom Locator that, given:
+      - a reference 'start_date' (corresponding to `value=0`)
+      - a 'first_tick_date' as the anchor for the first tick
+      - a 'time_unit' (currently only "D" is supported)
+      - a 'spacing_months' (how many months to jump between ticks)
+    places ticks on the 1st of every N-th month (N = spacing_months)
+    within the visible range.
+    """
+
+    def __init__(
+        self,
+        start_date: str,
+        time_unit: str = "D",
+        spacing_months: int = 1,
+        first_tick_date: str = None,
+    ) -> None:
+        """
+        Args:
+            start_date: date corresponding to `value=0` timepoint, e.g., "2025-02-01".
+            time_unit: time unit, e.g., "D" for days (only 'D' is supported now).
+            spacing_months: how many months to jump between ticks (must be >= 1).
+            first_tick_date: optional date where the first tick is anchored.
+                             If None, we find the 1st-of-month that is >= dt_min.
+        """
+        super().__init__()
+        if spacing_months < 1:
+            raise ValueError("spacing_months must be at least 1.")
+
+        self.start_date = pd.to_datetime(start_date)
+        self.time_unit = time_unit
+        self.spacing_months = spacing_months
+
+        if time_unit != "D":
+            raise NotImplementedError(
+                "Currently only days (time_unit='D') are supported."
+            )
+
+        if first_tick_date is not None:
+            self.first_tick_date = pd.to_datetime(first_tick_date)
+        else:
+            self.first_tick_date = None
+
+    def __call__(self):
+        """
+        Return the list of tick positions (as numeric days since start_date)
+        that fall on the 1st of each N-th month (N = self.spacing_months)
+        within the current view interval.
+        """
+        # Determine min and max of the current axis range (in numeric days)
+        vmin, vmax = self.axis.get_view_interval()
+        if vmin > vmax:
+            vmin, vmax = vmax, vmin
+
+        # Convert these numeric offsets to actual datetime objects
+        dt_min = self.start_date + pd.to_timedelta(vmin, self.time_unit)
+        dt_max = self.start_date + pd.to_timedelta(vmax, self.time_unit)
+
+        # -------------------------
+        # Determine the starting point for our tick iteration.
+        # 1) If a 'first_tick_date' was given, anchor to the 1st-of-month for that date.
+        # 2) Otherwise, anchor to the 1st-of-month that is >= dt_min.
+        # -------------------------
+        if self.first_tick_date is not None:
+            # Anchor to user-supplied date's month-start
+            current = pd.to_datetime(
+                f"{self.first_tick_date.year}-{self.first_tick_date.month}-01"
+            )
+        else:
+            # Anchor to dt_min's month-start
+            current = pd.to_datetime(f"{dt_min.year}-{dt_min.month}-01")
+            if current < dt_min:
+                # If dt_min is after that 1st, jump to the 1st of next month
+                current += pd.offsets.MonthBegin(1)
+
+        # If our current is still before dt_min, jump forward in increments
+        # of spacing_months until we get within or past dt_min
+        while current < dt_min:
+            current += pd.offsets.MonthBegin(self.spacing_months)
+
+        # -------------------------
+        # Collect ticks until we exceed dt_max
+        # -------------------------
+        ticks = []
+        while current <= dt_max:
+            offset_days = (current - self.start_date).days
+            ticks.append(offset_days)
+            current += pd.offsets.MonthBegin(self.spacing_months)
+
+        return ticks
+
+    def tick_values(self, vmin, vmax):
+        # Matplotlib may call tick_values directly; just reuse __call__()
+        return self.__call__()
+
+
+class AdjustXAxisForTime:
+    def __init__(
+        self,
+        time0: str,
+        *,
+        fmt="%b '%y",
+        time_unit: str = "D",
+        spacing_months: int = 1,
+        first_tick_date: str = None,
+    ) -> None:
+        """Adjusts the X ticks, so that the ticks
+        are placed at the first day of each month.
+
+        Args:
+            time0: date corresponding to value 0 on the x axis
+            time_unit: the time unit of the values on the x axis
+                (usually days, so use `time_unit="D"`)
+            fmt: format string to create the tick labels
+        """
+        self.start_date = time0
+        self.fmt = fmt
+        self.time_unit = time_unit
+        self.spacing_months = spacing_months
+
+        if first_tick_date is not None:
+            self.first_tick_date = pd.to_datetime(first_tick_date)
+        else:
+            self.first_tick_date = None
+
+    def _num_to_date(self, num: pd.Series | Float[Array, " timepoints"]) -> pd.Series:
+        """Convert days number into a date format"""
+        date = pd.to_datetime(self.start_date) + pd.to_timedelta(num, self.time_unit)
+        return date.strftime(self.fmt)
+
+    def __call__(self, ax: plt.Axes) -> None:
+        ax.xaxis.set_major_locator(
+            _MonthStartLocator(
+                start_date=self.start_date,
+                time_unit=self.time_unit,
+                spacing_months=self.spacing_months,
+                first_tick_date=self.first_tick_date,
+            )
+        )
+        ax.xaxis.set_major_formatter(
+            ticker.FuncFormatter(lambda x, pos: self._num_to_date(x))
+        )
 
 
 def num_to_date(
@@ -212,4 +358,5 @@ def plot_confidence_bands(
             alpha=alpha,
             label=label,
             **kwargs,
+            edgecolor=None,
         )
