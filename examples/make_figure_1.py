@@ -244,7 +244,7 @@ solution = qm.jax_multistart_minimize(loss, theta0, n_starts=1)
 theta_star = solution.x  # The maximum quasilikelihood estimate
 
 print(
-    f"Relative fitness advantages: \n",
+    f"Relative growth advantages: \n",
     qm.get_relative_growths(theta_star, n_variants=n_variants_effective),
 )
 # -
@@ -265,7 +265,6 @@ covariance = qm.get_covariance(loss, theta_star)
 overdispersion_tuple = qm.compute_overdispersion(
     observed=ys_effective,
     predicted=ys_fitted,
-    epsilon=1e-3,
 )
 
 overdisp_fixed = overdispersion_tuple.overall
@@ -283,7 +282,7 @@ confints_estimates = qm.get_confidence_intervals(
 )
 
 
-print("\n\nRelative fitness advantages:")
+print("\n\nRelative growth advantages:")
 for variant, m, l, u in zip(
     variants_effective[1:],
     (
@@ -309,8 +308,6 @@ for variant, m, l, u in zip(
 # We can propagate this uncertainty to the observed values. Let's generate confidence bands around the fitted lines and predict the future behaviour.
 
 # +
-# %%time
-
 ys_fitted_confint = qm.get_confidence_bands_logit(
     theta_star,
     n_variants=n_variants_effective,
@@ -508,7 +505,7 @@ fitness_df.iloc[14:, 13] = np.nan
 fitness_df = fitness_df.iloc[1:, 1:]
 
 ax = sns.heatmap(fitness_df, cmap="Reds", annot=True, fmt=".0f", cbar=True)
-ax.set_title("Weekly Fitness Advantage (%)")
+ax.set_title("Weekly Growth Advantage (%)")
 
 plt.savefig("figures/fig1c.pdf", bbox_inches="tight")
 plt.savefig("figures/fig1c.png", bbox_inches="tight", dpi=300)
@@ -601,6 +598,8 @@ for ax in axes[len(fitness_df.columns) :]:
 
 plt.tight_layout()
 plt.savefig("figures/supplementary_figure2.pdf")
+plt.savefig("figures/supplementary_figure2.png")
+
 plt.show()
 
 # +
@@ -685,9 +684,8 @@ fitness_df.iloc[14:, 13] = np.nan
 fitness_df = fitness_df.iloc[1:, 1:]
 
 ax = sns.heatmap(fitness_df, cmap="Reds", annot=True, fmt=".0f", cbar=True)
-
-ax.set_title("Discrete Time Model Weekly Fitness Advantage (%)")
-
+ax.set_title("Discrete Time Model Weekly Growth Advantage (%)")
+plt.show()
 # -
 
 # ## Look at overdispersion for different thresholds of epsilon
@@ -721,17 +719,14 @@ axes[0].set_xscale("log")
 
 
 # Cities vs Epsilon
-
 # for city_idx in range(cities_res.shape[1]):
 #     axes[0].plot(epsilons, cities_res[:, city_idx], label=f"{cities[city_idx]}")
 # axes[0].legend()
 
 axes[0].set_ylim(0.0, 0.55)
 
-
 plt.tight_layout()
 plt.savefig("figures/supplementary_figure3.pdf")
-plt.show()
-# -
+plt.savefig("figures/supplementary_figure3.png")
 
-0.04 / 0.16
+plt.show()
