@@ -7,13 +7,12 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.16.4
 #   kernelspec:
-#     display_name: jax
+#     display_name: jax3
 #     language: python
-#     name: jax
+#     name: jax3
 # ---
 
 # %%
-## analyse results
 
 import jax
 import jax.numpy as jnp
@@ -31,7 +30,6 @@ from scipy.stats import norm
 
 import yaml
 
-# import covvfit._frequentist as freq
 import covvfit._preprocess_abundances as prec
 import covvfit.plotting._timeseries as plot_ts
 
@@ -58,149 +56,7 @@ plt.rcParams["figure.dpi"] = 300
 
 
 # %%
-# # Plot
-# fig, axes = plt.subplots(3, 1, figsize=(10, 6), sharex=False)
 
-# # Define a colormap for consistent colors
-# colors = cm.tab10.colors  # Use a colormap with at least 4 colors
-
-# ax = axes[1]
-# # Top plot: Wastewater and clinical normalized solutions
-# for i, var_idx in enumerate(variants_evaluated_index):
-#     color = colors[i]  # Assign the same color for both lines
-#     ax.plot(
-#         wastewater_df["end_date"],
-#         (wastewater_df[f"solution_{var_idx}_normalized"]
-#         - wastewater_df[f"solution_{variants_reference_index}_normalized"])*7*100,
-#         label=f"Wastewater rate {variants[i]}",
-#         color=color,
-#         linestyle="-",
-#     )
-#     ax.plot(
-#         clinical_df["end_date"],
-#         (clinical_df[f"solution_{var_idx}_normalized"]
-#          - clinical_df[f"solution_{variants_reference_index}_normalized"])*7*100,
-#         label=f"Clinical rate {variants[i]}",
-#         color=color,
-#         linestyle="--",
-#     )
-
-# ax.set_ylabel("rel. fitness / week")
-# ax.set_title(f"fitness, relative to {reference_variant}, measurable at different dates")
-# ax.set_ylim(0, 0.25*7*100)
-# ax.legend()
-
-
-# import matplotlib.dates as mdates
-
-# # Ensure the 'date' column is in datetime format
-# grouped_clinical_data.reset_index(inplace=True)
-# grouped_clinical_data["date"] = pd.to_datetime(
-#     grouped_clinical_data["date"], errors="coerce"
-# )
-
-# # Drop rows with invalid dates
-# grouped_clinical_data = grouped_clinical_data.dropna(subset=["date"])
-
-# # Sort by date
-# grouped_clinical_data.sort_values("date", inplace=True)
-
-# ## plot samples
-
-# ax = axes[2]
-
-# # Plot stacked bar chart
-# div_col = zip(grouped_clinical_data.columns[1:], colors)
-# for division, color in div_col:  # Use the same divisions and colors as in the bar plot
-# # for division in grouped_clinical_data.columns[1:]:  # Skip the 'date' column
-#     ax.bar(
-#         grouped_clinical_data['date'],
-#         grouped_clinical_data[division],
-#         label=division,
-#         color=color,
-#         bottom=grouped_clinical_data.loc[:, grouped_clinical_data.columns[1:]].iloc[:, :grouped_clinical_data.columns[1:].tolist().index(division)].sum(axis=1, skipna=True)
-#     )
-
-# # Set labels and title
-# ax.set_ylabel("Samples Count")
-# ax.set_title("Samples Per Day")
-# ax.set_xlabel("Date")
-
-# # Format x-axis with date labels
-# locator = mdates.AutoDateLocator()
-# formatter = mdates.ConciseDateFormatter(locator)
-# ax.xaxis.set_major_locator(locator)
-# ax.xaxis.set_major_formatter(formatter)
-
-
-# # # Add legend
-# # ax.axhline(
-# #     y=6,
-# #     color='red',
-# #     linestyle='--',
-# #     linewidth=3,  # Set boldness by adjusting the line width
-# #     label="Wastewater samples (6/day)"  # Add a label for legend if needed
-# # )
-
-# # ax.axhline(
-# #     y=186,
-# #     color='black',
-# #     linestyle='--',
-# #     linewidth=3,  # Set boldness by adjusting the line width
-# #     label="Clinical sequences (186/day)"  # Add a label for legend if needed
-# # )
-
-
-# # ax.legend(title="")
-
-# ax = axes[0]
-
-# # Add the plot of BA.2* frequency
-# div_col = zip(grouped_clinical_data.columns[1:], colors)
-# for division, color in div_col:  # Use the same divisions and colors as in the bar plot
-#     division_data = clin_freq[clin_freq["division"] == division]
-#     ax.plot(
-#         division_data["date"],
-#         division_data[variants_evaluated[-1]],
-#         label=division,
-#         color=color,
-#         # marker='o',
-#         linestyle="-",
-#     )
-
-# # Customize the plot
-# ax.set_title(f"{variants_evaluated[-1]} Frequency in Clinical Sequences")
-# ax.set_xlabel("Date")
-# ax.set_ylabel("rel.abundance")
-# # ax.legend(title="Division", loc="upper left")
-# ax.grid(True)
-
-# # Format x-axis for better readability
-# plt.setp(ax.xaxis.get_majorticklabels(), rotation=0, ha="right")
-# axes[2].xaxis.set_major_locator(mdates.MonthLocator(bymonthday=1))  # First day of each month
-# axes[2].xaxis.set_major_formatter(mdates.DateFormatter("%b '%y"))
-# axes[2].set_xlabel("")
-# # Remove x-ticks and labels for the first two subplots
-# axes[0].tick_params(labelbottom=False)  # Hide x-axis labels for axes[0]
-# axes[0].set_xlabel("")
-# axes[1].tick_params(labelbottom=False)  # Hide x-axis labels for axes[1]
-
-
-# # Define x-axis limits based on the earliest and latest date in all datasets
-# x_min = wastewater_df["end_date"].min()
-# x_max = max(wastewater_df["end_date"].max(), clinical_df["end_date"].max(), grouped_clinical_data["date"].max(), clin_freq["date"].max())
-
-# # Apply the same x-axis limits to all subplots
-# for ax in axes:
-#     ax.set_xlim(x_min, x_max)
-
-
-# # Ensure layout is correct
-# plt.tight_layout()
-# plt.show()
-
-
-# %%
 pairwise_res = np.load(
     "../workflows/compare_clinical/results/config_ba1ba2/consolidated_pairwise_wastewater_results.npz"
 )
@@ -215,11 +71,6 @@ confidence_intervals_upper = pairwise_res[
 ]  # Shape: (time, variants, variants)
 time_points = pairwise_res["dates"]  # Shape: (time,)
 
-pairwise_differences[np.where(time_points == "2022-02-21")[0], 1, 0]
-
-plt.plot(pd.to_datetime(time_points), pairwise_differences[:, 1, 0])
-plt.plot(pd.to_datetime(time_points), confidence_intervals_lower[:, 1, 0])
-plt.plot(pd.to_datetime(time_points), confidence_intervals_upper[:, 1, 0])
 
 # %%
 import yaml
@@ -955,8 +806,8 @@ for i in range(3, 6):
         )
 
 
-# axes[2,0].set_yscale("log")
-# axes[2,1].set_yscale("log")
+axes[3, 0].set_yscale("log")
+axes[3, 1].set_yscale("log")
 
 # Collect legend handles and labels from all axes
 handles = []
@@ -1023,4 +874,8 @@ axes[3, 1].set_ylim(y_min, y_max)
 # fig.legend(loc="center left", bbox_to_anchor=(1, 0.5))
 # Ensure layout is correct
 plt.tight_layout()
+
+plt.savefig("figures/fig2.pdf", bbox_inches="tight")
+plt.savefig("figures/fig2.png", bbox_inches="tight")
+
 plt.show()

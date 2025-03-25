@@ -7,9 +7,10 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.16.4
 #   kernelspec:
-#     display_name: jax
+#     display_name: jax3
 #     language: python
-#     name: jax
+#     name: jax3
+
 # ---
 
 # %%

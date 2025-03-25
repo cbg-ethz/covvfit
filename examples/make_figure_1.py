@@ -8,10 +8,11 @@
 #       format_version: '1.5'
 #       jupytext_version: 1.16.4
 #   kernelspec:
-#     display_name: jax
+#     display_name: jax3
 #     language: python
-#     name: jax
+#     name: jax3
 # ---
+
 
 # # Analysis of the full dataset notebook
 #
@@ -377,7 +378,9 @@ def plot_city(ax, i: int) -> None:
     # Plot the complements
     plot_ts.plot_complement(ax, ts_lst[i], remove_0th(ys_fitted[i]), alpha=0.3)
 
-    plot_ts.AdjustXAxisForTime(start_date)(ax)
+    plot_ts.AdjustXAxisForTime(
+        start_date, first_tick_date="2022-01-01", spacing_months=12
+    )(ax)
     tick_positions = [0, 0.5, 1]
     tick_labels = ["0%", "50%", "100%"]
     ax.set_yticks(tick_positions)
@@ -387,13 +390,9 @@ def plot_city(ax, i: int) -> None:
 
 
 figure_spec.map(plot_city, range(len(cities)))
-# -
-
-(pd.to_datetime(["2021-08-01", "2025-03-01"]) - start_date).days
+plt.show()
 
 # +
-import matplotlib.pyplot as plt
-
 # Example data (adjust as needed)
 colors = [plot_ts.COLORS_COVSPECTRUM[var] for var in variants_investigated]
 
@@ -435,6 +434,9 @@ axes[5].set_ylabel("")
 
 plt.tight_layout()
 # Show the plot
+plt.savefig("figures/fig1b.pdf", bbox_inches="tight")
+plt.savefig("figures/fig1b.png", bbox_inches="tight")
+
 plt.show()
 
 
@@ -508,7 +510,10 @@ fitness_df = fitness_df.iloc[1:, 1:]
 ax = sns.heatmap(fitness_df, cmap="Reds", annot=True, fmt=".0f", cbar=True)
 ax.set_title("Weekly Fitness Advantage (%)")
 
+plt.savefig("figures/fig1c.pdf", bbox_inches="tight")
+plt.savefig("figures/fig1c.png", bbox_inches="tight", dpi=300)
 
+plt.show()
 # +
 # Assuming fitness_df and relgrowths_confint are already defined
 lower_conf_df = pd.DataFrame(
@@ -595,6 +600,7 @@ for ax in axes[len(fitness_df.columns) :]:
     ax.axis("off")
 
 plt.tight_layout()
+plt.savefig("figures/supplementary_figure2.pdf")
 plt.show()
 
 # +
@@ -679,6 +685,7 @@ fitness_df.iloc[14:, 13] = np.nan
 fitness_df = fitness_df.iloc[1:, 1:]
 
 ax = sns.heatmap(fitness_df, cmap="Reds", annot=True, fmt=".0f", cbar=True)
+
 ax.set_title("Discrete Time Model Weekly Fitness Advantage (%)")
 
 # -
@@ -713,14 +720,17 @@ axes[0].set_xscale("log")
 # axes[0].set_yscale('log')
 
 
-# # Cities vs Epsilon
+# Cities vs Epsilon
+
 # for city_idx in range(cities_res.shape[1]):
 #     axes[0].plot(epsilons, cities_res[:, city_idx], label=f"{cities[city_idx]}")
 # axes[0].legend()
 
-axes[0].set_ylim(0.1, 0.4)
+axes[0].set_ylim(0.0, 0.55)
+
 
 plt.tight_layout()
+plt.savefig("figures/supplementary_figure3.pdf")
 plt.show()
 # -
 
