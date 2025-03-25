@@ -3,7 +3,7 @@
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/charliermarsh/ruff/main/assets/badge/v2.json)](https://github.com/charliermarsh/ruff)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [![PyPI Latest Release](https://img.shields.io/pypi/v/covvfit.svg)](https://pypi.org/project/covvfit/)
-
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.15085753.svg)](https://doi.org/10.5281/zenodo.15085753)
 
 # covvfit
 
