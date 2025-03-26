@@ -42,7 +42,6 @@ In this manner, other users can also benefit from your insights.
 
 **Is there a manuscript associated with the tool?**
 
-The manuscript is being finalised. We hope to release the preprint describing the method in February 2025.
-In case you would like to cite *Covvfit* in your work, we would recommend the following for now:
+Yes! The reference for this tool is:
 
-D. Dreifuss, P. Czyż, N. Beerenwinkel, *Learning and forecasting selection dynamics of SARS-CoV-2 variants from wastewater sequencing data using Covvfit* (2025; in preparation). URL: https://github.com/cbg-ethz/covvfit
+> David Dreifuss, Paweł Piotr Czyż, Niko Beerenwinkel. *Learning and forecasting selection dynamics of SARS-CoV-2 variants from wastewater sequencing data using Covvfit*. medRxiv 2025.03.25.25324639; doi: [https://doi.org/10.1101/2025.03.25.25324639](https://doi.org/10.1101/2025.03.25.25324639)
