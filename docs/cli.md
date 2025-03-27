@@ -32,7 +32,7 @@ Note that a single deconvolved sample corresponds to several rows in a data fram
     
 The example data can be downloaded from [this link](https://drive.google.com/drive/folders/1cvgPpGRgC69nutpkeGReo5NnULe0Ovil?usp=sharing).
 Create the new directory and save the data there as `example-data.tsv`.
-
+A larger data set, which was used in the publication, is [available on Zenodo](https://doi.org/10.5281/zenodo.15085753).
 
 ## Running *Covvfit*
 

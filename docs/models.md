@@ -1,6 +1,9 @@
 # Statistical models
 
-Here, we explain the statistical models used.
+Here, we explain the statistical models used in the *Covvfit* tool. For more details, see the manuscript:
+
+> D. Dreifuss, P. Czyż, N. Beerenwinkel, *Learning and forecasting selection dynamics of SARS-CoV-2 variants from wastewater sequencing data using Covvfit* (2025; in preparation). URL: https://github.com/cbg-ethz/covvfit
+
 
 The models are composed of two components:
 
