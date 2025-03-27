@@ -123,16 +123,41 @@ class LogisticGrowthWithGaussianProcess(NamedTuple):
         """Number of variants."""
         return 1 + self.relative_offsets.shape[-1]
 
-    def _get_f0(timepoints: Float[Array, " timepoints"]) -> Float[Array, " timepoints"]:
-        return jnp.zeros_like(timepoints)
+    @property
+    def _sqrt_eigenvalues(self):
+        base = jnp.pi / (2 * self.domain_lengthscale)
+        return base * jnp.arange(1, self.n_basis + 1)
+
+    def _basis(
+        self, timepoints: Float[Array, " timepoints"]
+    ) -> Float[Array, "timepoints n_basis"]:
+        raise NotImplementedError
 
     def _get_fv(
-        timepoints: Float[Array, " timepoints"], v: int
+        basis: Float[Array, "timepoints n_basis"],
+        v: int,
     ) -> Float[Array, " timepoints"]:
         pass
+
+    def predict_latent(
+        self,
+        timepoints: Float[Array, " timepoints"],
+    ) -> Float[Array, "timepoints variants"]:
+        f0 = jnp.zeros_like(timepoints)
+
+        basis = self._basis(timepoints)
+
+        def aux(v: int):
+            return self._get_fv(basis, v)
+
+        fs = jax.vmap(aux)(jnp.arange(1, self.n_variants))
+
+        print(f0, fs, "Not implemented")
+        raise NotImplementedError
 
     def predict_log_abundance(
         self,
         timepoints: Float[Array, " timepoints"],
     ) -> Float[Array, "timepoints variants"]:
-        raise NotImplementedError
+        latent = self.predict_latent(timepoints)
+        return jax.nn.log_softmax(latent, axis=-1)
