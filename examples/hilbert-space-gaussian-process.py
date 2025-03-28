@@ -76,4 +76,56 @@
 # If we introduce the likelihood, connecting the abundance function $y(t)$ to the data, we can perform inference with MCMC samplers or variational inference.
 # Note that at the same time we perform the inference on all the parameters, including the coefficients $\gamma_{vd}$ (approximating $g_v$), which makes the model much larger than the simple selection dynamics model.
 
+# %% [markdown]
+# ## Implementing the approximation
+#
+# In this part, we will first focus on building the right code infrastructure, focusing on modeling only a single-output timeseries.
+
+# %%
+import jax
+import jax.numpy as jnp
+
+import matplotlib.pyplot as plt
+
+import covvfit._hsgp as hsgp
+
+# %%
+params = hsgp.AmplitudeLengthParams(amplitude=1.0, lengthscale=0.1)
+
+kernels = {
+    "Matern 1/2": hsgp.Matern12(params),
+    "Matern 3/2": hsgp.Matern32(params),
+    "Matern 5/2": hsgp.Matern52(params),
+    "RBF": hsgp.RBFKernel(params),
+}
+
+# %%
+r = jnp.linspace(params.lengthscale * 1e-3, params.lengthscale * 3.5, 301)
+
+for name, kernel in kernels.items():
+    k = kernel.evaluate_kernel(jnp.abs(r))
+    plt.plot(r, k, label=name)
+
+plt.legend()
+
+# %%
+kernel = hsgp.RBFKernel(params)
+
+x = jnp.linspace(0.1, 0.3, 2)
+y = jnp.linspace(0, 0.3, 3)
+
+kernel.gram_matrix(x, y)
+
+# %%
+hsgp.approximate_gram(
+    kernel,
+    x,
+    y,
+    n_basis=30,
+    lengthscale=0.4,  # Note: setting lengthscale = 2.0 breaks the approximation with just 30 vectors
+)
+
+# %%
+jax.vmap(lambda x: x**2)(jnp.arange(5))
+
 # %%
