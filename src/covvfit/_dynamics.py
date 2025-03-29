@@ -88,3 +88,76 @@ class JointLogisticGrowthParams(NamedTuple):
             relative_growths=self.relative_growths,
             relative_midpoints=self.relative_offsets,
         )
+
+
+class LogisticGrowthWithGaussianProcess(NamedTuple):
+    """The logistic growth (selection dynamics) adjusted
+    by the Gaussian process (represented using Hilbert space approximation)
+    for a single city.
+
+    The model is the following:
+
+    $y(t) = softmax(f(t))$
+
+    where $f_0(t) = 0$ for all $t$ (typical constraint to remove aliasing)
+    and
+
+    $f_v(t) = a_v t + b + g_v(t)$,
+
+    where $g_v(t)$ is a random function represented in terms of basis.
+    """
+
+    relative_growths: Float[Array, " variants-1"]
+    relative_offsets: Float[Array, " variants-1"]
+
+    n_basis: int
+    domain_lengthscale: float
+
+    gp_lengthscales: Float[Array, " variants-1"]
+    gp_amplitudes: Float[Array, " variants-1"]
+
+    gp_coefficients: Float[Array, "n_basis variants-1"]
+
+    @property
+    def n_variants(self) -> int:
+        """Number of variants."""
+        return 1 + self.relative_offsets.shape[-1]
+
+    @property
+    def _sqrt_eigenvalues(self):
+        base = jnp.pi / (2 * self.domain_lengthscale)
+        return base * jnp.arange(1, self.n_basis + 1)
+
+    def _basis(
+        self, timepoints: Float[Array, " timepoints"]
+    ) -> Float[Array, "timepoints n_basis"]:
+        raise NotImplementedError
+
+    def _get_fv(
+        basis: Float[Array, "timepoints n_basis"],
+        v: int,
+    ) -> Float[Array, " timepoints"]:
+        pass
+
+    def predict_latent(
+        self,
+        timepoints: Float[Array, " timepoints"],
+    ) -> Float[Array, "timepoints variants"]:
+        f0 = jnp.zeros_like(timepoints)
+
+        basis = self._basis(timepoints)
+
+        def aux(v: int):
+            return self._get_fv(basis, v)
+
+        fs = jax.vmap(aux)(jnp.arange(1, self.n_variants))
+
+        print(f0, fs, "Not implemented")
+        raise NotImplementedError
+
+    def predict_log_abundance(
+        self,
+        timepoints: Float[Array, " timepoints"],
+    ) -> Float[Array, "timepoints variants"]:
+        latent = self.predict_latent(timepoints)
+        return jax.nn.log_softmax(latent, axis=-1)

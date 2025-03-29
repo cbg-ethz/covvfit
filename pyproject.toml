@@ -25,6 +25,7 @@ typer = "^0.15.1"
 jaxtyping = "^0.2.36"
 pydantic = "^2.10.6"
 pyyaml = "^6.0.2"
+equinox = "^0.12.1"
 
 [tool.poetry.scripts]
 covvfit = "covvfit.cli:main"
