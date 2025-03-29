@@ -262,7 +262,114 @@ for ax in axs:
 fig.tight_layout()
 
 # %% [markdown]
-# ## Artificial data set
+# ## Modelling a simple regression problem
+#
+# Before we go into modelling variant abundance, which has several complications, we should try to see if our implementation is trustworty on a simple problem.
+#
+# We will use a simple regression problem, where there is a non-stationary function we are trying to model and some Gaussian noise.
+
+# %%
+ts = jnp.linspace(-1, 1, 101)
+ts_obs = jnp.linspace(-1, 1, 200)
+
+key = jax.random.PRNGKey(42)
+key, subkey = jax.random.split(key)
+
+noise = 0.3
+
+
+def f(t):
+    return 0.5 + 3 * t + jnp.sin(8 * t) - jnp.sin(3 * t)
+
+
+ys_obs = f(ts_obs) + noise * jax.random.normal(subkey, shape=ts_obs.shape)
+
+fig, ax = plt.subplots()
+
+ax.plot(ts, f(ts), color="darkblue")
+ax.scatter(ts_obs, ys_obs, color="black")
+
+# %%
+import numpyro
+from numpyro.infer import MCMC, NUTS
+import numpyro.distributions as dist
+from numpyro.infer import init_to_mean
+
+N_BASIS = 25
+LENGTHSCALE = 1.5
+KERNEL_FN = hsgp.Matern52
+
+
+def model_gp():
+    gp_predict = hsgp.generate_approximated_prediction_function(
+        ts_obs,
+        N_BASIS,
+        LENGTHSCALE,
+    )
+
+    intercept = numpyro.sample("intercept", dist.Normal(0, 5))
+    slope = numpyro.sample("slope", dist.Normal(0, 5))
+
+    gp_amplitude = numpyro.sample("amplitude", dist.Uniform(0.1, 3.0))
+    gp_lengthscale = numpyro.sample("lengthscale", dist.Uniform(0.3, 2.0))
+
+    kernel = KERNEL_FN(
+        hsgp.AmplitudeLengthParams(amplitude=gp_amplitude, lengthscale=gp_lengthscale)
+    )
+
+    coeff = numpyro.sample("z_coeff", dist.Normal(jnp.zeros(N_BASIS), 1.0))
+
+    sigma = numpyro.sample("sigma", dist.HalfNormal(1))
+
+    # Shape the same ys_obs and ts_obs, which is (n_datapoints,)
+    predictions = intercept + ts_obs * slope + gp_predict(kernel, coeff)
+
+    with numpyro.plate("data", ts_obs.shape[0]):
+        numpyro.sample("obs", dist.Normal(predictions, sigma), obs=ys_obs)
+
+
+mcmc = MCMC(
+    NUTS(model_gp, init_strategy=init_to_mean()),
+    num_chains=4,
+    num_samples=1000,
+    num_warmup=1000,
+)
+mcmc.run(jax.random.PRNGKey(101))
+
+mcmc.print_summary()
+
+samples = mcmc.get_samples()
+
+
+# %%
+def predict_from_sample(sample):
+    gp_predict = hsgp.generate_approximated_prediction_function(
+        ts,
+        N_BASIS,
+        LENGTHSCALE,
+    )
+    kernel = KERNEL_FN(
+        hsgp.AmplitudeLengthParams(
+            amplitude=sample["amplitude"], lengthscale=sample["lengthscale"]
+        )
+    )
+
+    simple_part = sample["slope"] * ts + sample["intercept"]
+    gp_part = gp_predict(kernel, sample["z_coeff"])
+    return simple_part + gp_part
+
+
+fig, ax = plt.subplots()
+
+ax.plot(ts, f(ts), color="darkblue")
+ax.scatter(ts_obs, ys_obs, color="black")
+
+for index in range(0, len(samples["slope"]), 30):
+    vals = predict_from_sample(jax.tree.map(lambda x: x[index], samples))
+    ax.plot(ts, vals, color="grey", alpha=0.3)
+
+# %% [markdown]
+# ## Modelling variant abundance (on simulated data)
 #
 # Let's consider the simplest scenario. We have only one city and we observe the competition between two variants (baseline and the new one) over a year.
 #
@@ -402,6 +509,7 @@ ax.set_xlabel("Time")
 ax.set_ylabel("Abundance")
 ax.spines[["top", "right"]].set_visible(False)
 
+
 # %% [markdown]
 # ### Fitting the simplest dynamical model
 #
@@ -418,12 +526,8 @@ ax.spines[["top", "right"]].set_visible(False)
 # $$
 # where $\psi$ is the overdispersion. We assume (and this is a serious oversimplification) that it is known (in practice, we may need to use the one from the usual fit or some methods to estimate it jointly. But let's leave this issue for another time).
 
+
 # %%
-import numpyro
-from numpyro.infer import MCMC, NUTS
-import numpyro.distributions as dist
-
-
 def quasiloglikelihood_fn(
     predictions,
     overdispersion,
