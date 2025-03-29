@@ -340,6 +340,17 @@ mcmc.print_summary()
 
 samples = mcmc.get_samples()
 
+# %%
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer.autoguide import AutoNormal
+
+guide = AutoNormal(model_gp)
+svi = SVI(model_gp, guide, numpyro.optim.Adam(1e-2), Trace_ELBO(200))
+svi_results = svi.run(rng_key, 10000)
+
+opt_params = svi.get_params(svi_results.state)
+samples = guide.sample_posterior(key, opt_params, sample_shape=(100,))
+
 
 # %%
 def predict_from_sample(sample):
@@ -441,8 +452,8 @@ def simulate_abundance(
 
 timepoints = jnp.linspace(-1, 1, 201)
 
-# params0 = FitnessParams(f0=3.0, a0=4.0, nu0=1 / 2)
-params0 = FitnessParams(f0=3.0, a0=0.3, nu0=1 / 2)
+params0 = FitnessParams(f0=3.0, a0=4.0, nu0=1 / 2)
+# params0 = FitnessParams(f0=3.0, a0=0.3, nu0=1 / 2)
 start0 = 0.01
 
 abundances = simulate_abundance(timepoints, start0, params0)
@@ -479,12 +490,12 @@ fig.tight_layout()
 # Let's now generate observed data points:
 
 # %%
-last_observation = 0.5
-n_datapoints = 101
+last_observation = 0.6
+n_datapoints = 121
 
 t_obs = jnp.linspace(-1.0, last_observation, n_datapoints)
 x_obs = simulate_abundance(t_obs, start0, params0)
-overdisp = 0.01
+overdisp = 0.1
 
 key = jax.random.PRNGKey(42)
 key, subkey = jax.random.split(key)
@@ -602,9 +613,9 @@ for ax in axs:
 # %%
 from numpyro.infer import init_to_mean
 
-N_BASIS = 8
+N_BASIS = 20
 LENGTHSCALE = 1.5
-KERNEL_FN = hsgp.RBFKernel
+KERNEL_FN = hsgp.Matern32
 
 
 def model_gp():
@@ -614,11 +625,11 @@ def model_gp():
         LENGTHSCALE,
     )
 
-    fitness = numpyro.sample("fitness", dist.Normal(0, 10))
+    fitness = numpyro.sample("fitness", dist.Normal(0, 5))
     offset = numpyro.sample("offset", dist.Normal(0, 20))
 
     gp_amplitude = numpyro.sample("amplitude", dist.Uniform(0.1, 3.0))
-    gp_lengthscale = numpyro.sample("lengthscale", dist.Uniform(0.3, 2.0))
+    gp_lengthscale = numpyro.sample("lengthscale", dist.Uniform(0.05, 0.5))
 
     # gp_amplitude = jnp.clip(gp_amplitude, 0.001)
     # gp_lengthscale = jnp.clip(gp_lengthscale, 0.001)
@@ -669,6 +680,16 @@ def predict_from_sample(sample):
 
 
 # %%
+guide = AutoNormal(model_gp)
+svi = SVI(model_gp, guide, numpyro.optim.Adam(1e-3), Trace_ELBO(200))
+
+key = jax.random.PRNGKey(105)
+svi_results = svi.run(key, 10_000)
+
+opt_params = svi.get_params(svi_results.state)
+samples = guide.sample_posterior(key, opt_params, sample_shape=(2_000,))
+
+# %%
 fig, axs = plt.subplots(1, 2, figsize=(2 * 4, 3), dpi=150)
 
 ax = axs[1]
@@ -678,7 +699,9 @@ ax.scatter(t_obs, y_obs, c="k", s=3)
 
 for i in indices:
     sample = jax.tree.map(lambda x: x[i], samples)
-    ax.plot(timepoints, predict_from_sample(sample), c="black", alpha=0.05)
+    ax.plot(
+        timepoints, predict_from_sample(sample), c="black", alpha=0.8, linewidth=0.1
+    )
 
 ax.axvspan(last_observation * 1.001, 1.0, alpha=0.1, color="grey")
 ax.set_xlabel("Time")
