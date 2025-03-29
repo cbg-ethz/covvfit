@@ -192,7 +192,7 @@ class Matern52(BaseSpectralKernel):
         return num / den
 
 
-def approximate_gram(
+def approximate_gram_matrix(
     kernel: ISpectralKernel,
     x: Float[Array, " nx"],
     y: Float[Array, " ny"],
@@ -208,3 +208,23 @@ def approximate_gram(
     S = kernel.spectral_density(sqrt_lambda)  # shape (n_basis,)
 
     return jnp.einsum("n,nx,ny->xy", S, phi_x, phi_y)
+
+
+def generate_approximated_prediction_function(
+    x: Float[Array, " n_x"],
+    n_basis: int,
+    lengthscale: float,
+):
+    interval = Interval(lengthscale=lengthscale)
+    eigenfunctions = interval.eigenfunctions(x, n=n_basis)
+    sqrt_eigenvalues = interval.sqrt_eigenvalues(n_basis)
+
+    def predict(
+        kernel: ISpectralKernel,
+        coefficients: Float[Array, " n_basis"],
+    ):
+        S = kernel.spectral_density(sqrt_eigenvalues)
+        root_S = jnp.sqrt(S)  # (n_basis,)
+        return jnp.einsum("n,n,nx->x", root_S, coefficients, eigenfunctions)
+
+    return predict

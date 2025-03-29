@@ -80,6 +80,14 @@
 # ## Implementing the approximation
 #
 # In this part, we will first focus on building the right code infrastructure, focusing on modeling only a single-output timeseries.
+#
+# Let's take a look at the implemented kernels. We use a few kernels, which can be understood in the following fashion:
+#
+# 1. They are stationary, with covariance between $x$ and $y$ given by $\mathrm{Cov}(x, y) = k(|x-y|)$.
+# 2. It is possible to represent them via the spectral density, $S(\omega)$.
+# 3. Each of these kernels is parameterized in terms of amplitude (amplitude $a$ scales the covariance by $a^2$) and lengthscale (lengthscale $\ell$ means that we effectively use $|x-y|/\ell$ as the normalized distance within the kernel).
+#
+# Let's plot them:
 
 # %%
 import jax
@@ -89,7 +97,7 @@ import matplotlib.pyplot as plt
 
 import covvfit._hsgp as hsgp
 
-# %%
+
 params = hsgp.AmplitudeLengthParams(amplitude=1.0, lengthscale=0.1)
 
 kernels = {
@@ -99,14 +107,85 @@ kernels = {
     "RBF": hsgp.RBFKernel(params),
 }
 
-# %%
+
 r = jnp.linspace(params.lengthscale * 1e-3, params.lengthscale * 3.5, 301)
+
+fig, axs = plt.subplots(1, 2, figsize=(2 * 3, 2), dpi=300)
+
+ax = axs[0]
 
 for name, kernel in kernels.items():
     k = kernel.evaluate_kernel(jnp.abs(r))
-    plt.plot(r, k, label=name)
+    ax.plot(r, k, label=name)
 
-plt.legend()
+ax.legend(frameon=False)
+ax.set_xlabel("$r$")
+ax.set_ylabel("$k(r)$")
+
+
+ax = axs[1]
+omega = jnp.linspace(1e-3, 30.0, 101)
+
+for name, kernel in kernels.items():
+    s = kernel.spectral_density(omega)
+    ax.plot(omega, s, label=name)
+
+ax.set_xlabel("$\\omega$")
+ax.set_ylabel("$S(\\omega)$")
+
+for ax in axs:
+    ax.spines[["top", "right"]].set_visible(False)
+fig.tight_layout()
+
+
+# %% [markdown]
+# While the above functions define the kernel, it is perhaps hard to visualize it. How do we visualise a sampled function $g \sim \mathrm{GP}(0, k)$?
+#
+# By discretization: let $x_1, ..., x_m$ be a points on which we want to obtain the function values $g(x_1), \dotsc, g(x_m)$.
+# From the definition of a Gaussian process, these values can be sampled by sampling a random vector $(Y_1, ..., Y_m)$, where the covariance matrix is given by $\mathrm{Cov}(Y_i, Y_j) = k(x_i, x_j)$. This is a particular case of the [Gram matrix](https://en.wikipedia.org/wiki/Gram_matrix).
+#
+# Let's sample a few multivariate normal vectors, then:
+
+# %%
+fig, axs = plt.subplots(len(kernels), sharex=True, sharey=True)
+
+key = jax.random.PRNGKey(42)
+
+for ax, (name, kernel) in zip(axs, kernels.items()):
+    key, subkey = jax.random.split(key)
+    n_points = 81
+    jitter = 1e-5
+    x = jnp.linspace(-1, 1, n_points)
+    K = kernel.gram_matrix(x, x) + jitter * jnp.eye(
+        n_points
+    )  # Add a small jitter for numerical stability
+
+    n_samples = 5
+    for i in range(n_samples):
+        new_key = jax.random.fold_in(subkey, i)
+        g_x = jax.random.multivariate_normal(
+            new_key,
+            jnp.zeros_like(x),
+            K,
+        )
+        ax.plot(x, g_x, alpha=1.0)
+
+    ax.set_ylabel(name)
+
+ax = axs[-1]
+ax.set_xlabel("$x$")
+
+for ax in axs:
+    ax.spines[["top", "right"]].set_visible(False)
+fig.tight_layout()
+
+
+# %% [markdown]
+# We see that different kernels, even if they have the same amplitude and lengthscale, have quite different smoothness properties. The RBF kernel is smooth, while Matern kernels have only a finite number of derivatives.
+#
+# We should not that constructing the Gram matrix for $m$ points, required $O(m^2)$ operations. By truncating the domain to the interval $[-L, L]$, we can approximate the Gram matrix using a finite number of basis functions. See Section 4 [here](https://arxiv.org/abs/2004.11408) for the guidelines on how to choose the number of basis function used in the approximation.
+#
+# As a simple check, we can detect issues by evaluating the Gram matrices (note that it's similar to the convergence checks: this method does not prove that we have enough basis elements, but rather can be used to spot issues):
 
 # %%
 kernel = hsgp.RBFKernel(params)
@@ -114,18 +193,394 @@ kernel = hsgp.RBFKernel(params)
 x = jnp.linspace(0.1, 0.3, 2)
 y = jnp.linspace(0, 0.3, 3)
 
-kernel.gram_matrix(x, y)
+print("--- Exact: ---")
+print(kernel.gram_matrix(x, y))
 
-# %%
-hsgp.approximate_gram(
+print("\n\n--- Approximation: ---")
+hsgp.approximate_gram_matrix(
     kernel,
     x,
     y,
-    n_basis=30,
-    lengthscale=0.4,  # Note: setting lengthscale = 2.0 breaks the approximation with just 30 vectors
+    n_basis=50,
+    lengthscale=1.5,
 )
 
+# %% [markdown]
+# Alternatively, we can also look at the covariance function $k(r)$:
+
 # %%
-jax.vmap(lambda x: x**2)(jnp.arange(5))
+r = jnp.linspace(params.lengthscale * 1e-3, params.lengthscale * 3.5, 5)
+
+print("--- Exact: ---")
+print(kernel.evaluate_kernel(r))
+
+print("\n\n--- Approximation: ---")
+
+reference = jnp.array([0.3])
+_vals = hsgp.approximate_gram_matrix(
+    kernel,
+    reference,
+    reference + r,
+    n_basis=50,
+    lengthscale=1.0,
+)
+print(_vals)
+
+# %% [markdown]
+# Let's use this approximation to sample functions from $\mathrm{GP}(0, k)$. In this case, rather than sampling a normal vector from the distribution with $m\times m$ covariance matrix (which may require up to $O(m^3)$ operations), we will sample $D$ independent variables from $\mathrm{Normal}(0, 1)$ vector, which is very cheap.
+
+# %%
+fig, axs = plt.subplots(len(kernels), sharex=True, sharey=True)
+
+key = jax.random.PRNGKey(42)
+
+for ax, (name, kernel) in zip(axs, kernels.items()):
+    key, subkey = jax.random.split(key)
+    n_points = 81
+    n_basis = 150
+
+    x = jnp.linspace(-1, 1, n_points)
+
+    predict_fn = hsgp.generate_approximated_prediction_function(
+        x, n_basis=n_basis, lengthscale=1.5
+    )
+
+    n_samples = 5
+    for i in range(n_samples):
+        new_key = jax.random.fold_in(subkey, i)
+        coeffs = jax.random.normal(new_key, shape=(n_basis,))
+        g_x = predict_fn(kernel, coeffs)
+        ax.plot(x, g_x, alpha=1.0)
+
+    ax.set_ylabel(name)
+
+ax = axs[-1]
+ax.set_xlabel("$x$")
+
+for ax in axs:
+    ax.spines[["top", "right"]].set_visible(False)
+fig.tight_layout()
+
+# %% [markdown]
+# ## Artificial data set
+#
+# Let's consider the simplest scenario. We have only one city and we observe the competition between two variants (baseline and the new one) over a year.
+#
+# We assume that the relative fitness of the new variant over the baseline is not a constant, but rather changes as
+#
+# $$f(t) = f_0 + a_0 \sin( 2\pi t \cdot \nu_0),$$
+#
+# where $f_0$ is the "baseline" fitness, $a_0$ controls the amplitude of the departures from it and $\nu_0$ controls the frequency of the changes.
+# Importantly (because of the Gaussian process regression parameterization), the time of interest will change between $[-1, 1]$. For example, if we monitor the competition over the whole year (so that $2$ is the time unit corresponding to the whole year) and we expect that $f$ should fully oscillate around 3 times in a year, we should set $\nu_0 = 3 / 2 = 1.5$.
+#
+# monitor the competition over the whole year (so that $1$ time unit is equal to half a year and the whole year is represented by number $2$) and we expect that the "characteristic" timescale is about a month, we expect that $\nu_0 = 0.5 \cdot (1/12)$.
+#
+# This choice is very convenient, as we can calculate the relative abundance of the new variant analytically. Namely, let
+# $$
+# \tilde x(t) = \int\limits_{-1}^t f(t') \,\mathrm{d}t' = f_0 \cdot (1+t) + \frac{a_0}{2\pi\nu_0} ( \cos(2\pi \nu_0) - \cos( 2\pi t\nu_0) )
+# $$
+#
+# The relative abundance is then given by
+# $$
+# x(t) = \frac{ x_\text{start}  \exp \tilde x(t) }{ x_\text{start}  \exp \tilde x(t)  + (1-x_\text{start})} = \frac{1}{1 + \frac{1-x_\text{start}}{x_\text{start}} \exp(-\tilde x(t) ) },
+# $$
+#
+# where $x_\text{start} = x(-1)$.
+#
+# (See Eq. (1) of [this paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC11643185/pdf/nihpp-2024.12.02.24318334v2.pdf).)
+#
+#
+# Let's use the equations above to simulate the ground-truth abundance:
+
+# %%
+from typing import NamedTuple
+
+
+class FitnessParams(NamedTuple):
+    f0: float
+    a0: float
+    nu0: float
+
+    def fitness(self, t):
+        return self.f0 + self.a0 * jnp.sin(2 * jnp.pi * t * self.nu0)
+
+
+def remove_time_dependency(params: FitnessParams) -> FitnessParams:
+    """Auxiliary function, creating a simple dynamics (without time dependency)."""
+    return FitnessParams(f0=params.f0, a0=0.0, nu0=1.0)
+
+
+def simulate_tilde_abundance(
+    timepoints,
+    params: FitnessParams,
+):
+    f0, a0 = params.f0, params.a0
+    two_pi_nu = 2 * jnp.pi * params.nu0
+    t = timepoints
+
+    return f0 * (1 + t) + a0 * (jnp.cos(two_pi_nu) - jnp.cos(two_pi_nu * t)) / two_pi_nu
+
+
+def simulate_abundance(
+    timepoints,
+    start,
+    params: FitnessParams,
+):
+    x_tilde = simulate_tilde_abundance(timepoints=timepoints, params=params)
+    const = jnp.log1p(-start) - jnp.log(start)
+
+    return jnp.reciprocal(1.0 + jnp.exp(const - x_tilde))
+
+
+timepoints = jnp.linspace(-1, 1, 201)
+
+# params0 = FitnessParams(f0=3.0, a0=4.0, nu0=1 / 2)
+params0 = FitnessParams(f0=3.0, a0=0.3, nu0=1 / 2)
+start0 = 0.01
+
+abundances = simulate_abundance(timepoints, start0, params0)
+
+abundances_simple = simulate_abundance(
+    timepoints,
+    start0,
+    remove_time_dependency(params0),
+)
+
+fig, axs = plt.subplots(1, 2, figsize=(2 * 3, 2), dpi=200)
+
+ax = axs[0]
+
+ax.plot(timepoints, params0.fitness(timepoints), c="darkblue")
+ax.plot(timepoints, remove_time_dependency(params0).fitness(timepoints), c="maroon")
+
+ax.set_ylabel("Fitness")
+ax.set_xlabel("Time")
+
+ax = axs[1]
+ax.plot(timepoints, abundances, label="Varying fitness", c="darkblue")
+ax.plot(timepoints, abundances_simple, label="Constant fitness", c="maroon")
+ax.legend(frameon=False)
+ax.set_ylabel("Abundance")
+ax.set_xlabel("Time")
+
+for ax in axs:
+    ax.spines[["top", "right"]].set_visible(False)
+
+fig.tight_layout()
+
+# %% [markdown]
+# Let's now generate observed data points:
+
+# %%
+last_observation = 0.5
+n_datapoints = 101
+
+t_obs = jnp.linspace(-1.0, last_observation, n_datapoints)
+x_obs = simulate_abundance(t_obs, start0, params0)
+overdisp = 0.01
+
+key = jax.random.PRNGKey(42)
+key, subkey = jax.random.split(key)
+
+y_obs = jnp.clip(
+    x_obs
+    + overdisp
+    * jnp.sqrt(x_obs * (1 - x_obs))
+    * jax.random.normal(key, shape=x_obs.shape),
+    0.0,
+    1.0,
+)
+
+fig, ax = plt.subplots()
+
+ax.plot(timepoints, abundances, c="darkblue", alpha=0.5, linestyle="--")
+ax.plot(timepoints, abundances_simple, c="maroon", alpha=0.5, linestyle="--")
+ax.scatter(t_obs, y_obs, c="k")
+
+ax.axvspan(last_observation * 1.001, 1.0, alpha=0.1, color="grey")
+ax.set_xlabel("Time")
+ax.set_ylabel("Abundance")
+ax.spines[["top", "right"]].set_visible(False)
+
+# %% [markdown]
+# ### Fitting the simplest dynamical model
+#
+# Let's first fit the simplest selection dynamics model (under the constant fitness assumption). We have two free parameters: $f_0$ and $b_0$, with:
+#
+# $$
+# x(t) = \mathrm{logit}^{-1}(f_0 t + b).
+# $$
+#
+# Having observed the abundance $y = y(t)$, when the prediction is $x = x(t)$, we will use the quasi-likelihood:
+#
+# $$
+#     q( y, x ) = \frac{y \log x + (1-y) \log(1-x)}{\psi},
+# $$
+# where $\psi$ is the overdispersion. We assume (and this is a serious oversimplification) that it is known (in practice, we may need to use the one from the usual fit or some methods to estimate it jointly. But let's leave this issue for another time).
+
+# %%
+import numpyro
+from numpyro.infer import MCMC, NUTS
+import numpyro.distributions as dist
+
+
+def quasiloglikelihood_fn(
+    predictions,
+    overdispersion,
+    jitter: float = 1e-3,
+):
+    predictions = jnp.clip(
+        predictions, jitter, 1.0 - jitter
+    )  # This is a hack for numerical stability
+
+    qs = y_obs * jnp.log(predictions) + (1 - y_obs) * jnp.log1p(-predictions)
+    return jnp.sum(qs) / overdispersion
+
+
+def simple_pred_fn(fitness, offset):
+    return jax.nn.sigmoid(fitness * t_obs + offset)
+
+
+def model_simple():
+    fitness = numpyro.sample("fitness", dist.Normal(0, 10))
+    offset = numpyro.sample("offset", dist.Normal(0, 20))
+
+    predictions = simple_pred_fn(fitness, offset)
+    numpyro.factor("quasilikelihood", quasiloglikelihood_fn(predictions, overdisp))
+
+
+mcmc = MCMC(NUTS(model_simple), num_chains=4, num_samples=1000, num_warmup=1000)
+mcmc.run(jax.random.PRNGKey(101))
+
+# %%
+mcmc.print_summary()
+
+# %%
+samples = mcmc.get_samples()
+
+key = jax.random.PRNGKey(134)
+n_samples = len(samples["fitness"])
+indices = jax.random.choice(key, n_samples, shape=(50,), replace=False)
+
+# %%
+fig, axs = plt.subplots(1, 2, figsize=(2 * 4, 3), dpi=150)
+
+ax = axs[0]
+ax.set_xlabel("Time")
+ax.set_ylabel("Fitness")
+ax.plot(timepoints, params0.fitness(timepoints), c="darkblue")
+ax.plot(timepoints, remove_time_dependency(params0).fitness(timepoints), c="maroon")
+
+for i in indices:
+    f = samples["fitness"][i]
+    ax.plot(timepoints, jnp.full_like(timepoints, f), c="black", alpha=0.1)
+
+ax = axs[1]
+ax.plot(timepoints, abundances, c="darkblue", alpha=0.5, linestyle="--")
+ax.plot(timepoints, abundances_simple, c="maroon", alpha=0.5, linestyle="--")
+ax.scatter(t_obs, y_obs, c="k", s=3)
+
+for i in indices:
+    f = samples["fitness"][i]
+    o = samples["offset"][i]
+    ax.plot(timepoints, jax.nn.sigmoid(f * timepoints + o), c="black", alpha=0.05)
+
+ax.axvspan(last_observation * 1.001, 1.0, alpha=0.1, color="grey")
+ax.set_xlabel("Time")
+ax.set_ylabel("Abundance")
+
+for ax in axs:
+    ax.spines[["top", "right"]].set_visible(False)
+
+# %% [markdown]
+# ### Fitting the Gaussian process model
+
+# %%
+from numpyro.infer import init_to_mean
+
+N_BASIS = 8
+LENGTHSCALE = 1.5
+KERNEL_FN = hsgp.RBFKernel
+
+
+def model_gp():
+    gp_predict = hsgp.generate_approximated_prediction_function(
+        t_obs,
+        N_BASIS,
+        LENGTHSCALE,
+    )
+
+    fitness = numpyro.sample("fitness", dist.Normal(0, 10))
+    offset = numpyro.sample("offset", dist.Normal(0, 20))
+
+    gp_amplitude = numpyro.sample("amplitude", dist.Uniform(0.1, 3.0))
+    gp_lengthscale = numpyro.sample("lengthscale", dist.Uniform(0.3, 2.0))
+
+    # gp_amplitude = jnp.clip(gp_amplitude, 0.001)
+    # gp_lengthscale = jnp.clip(gp_lengthscale, 0.001)
+
+    # gp_amplitude = numpyro.sample("amplitude", dist.InverseGamma(0.9, 0.2))
+    # gp_lengthscale = numpyro.sample("lengthscale", dist.InverseGamma(1.22, 0.05))
+
+    kernel = KERNEL_FN(
+        hsgp.AmplitudeLengthParams(amplitude=gp_amplitude, lengthscale=gp_lengthscale)
+    )
+
+    coeff = numpyro.sample("z_coeff", dist.Normal(jnp.zeros(N_BASIS), 1.0))
+
+    simple_part = fitness * t_obs + offset
+    gp_part = gp_predict(kernel, coeff)
+
+    predictions = jax.nn.sigmoid(simple_part + gp_part)
+    numpyro.factor("quasilikelihood", quasiloglikelihood_fn(predictions, overdisp))
+
+
+mcmc = MCMC(
+    NUTS(model_gp, init_strategy=init_to_mean()),
+    num_chains=4,
+    num_samples=1000,
+    num_warmup=1000,
+)
+mcmc.run(jax.random.PRNGKey(101))
+
+mcmc.print_summary()
+
+samples = mcmc.get_samples()
+
+
+def predict_from_sample(sample):
+    gp_predict = hsgp.generate_approximated_prediction_function(
+        timepoints,
+        N_BASIS,
+        LENGTHSCALE,
+    )
+    kernel = KERNEL_FN(
+        hsgp.AmplitudeLengthParams(
+            amplitude=sample["amplitude"], lengthscale=sample["lengthscale"]
+        )
+    )
+    simple_part = sample["fitness"] * timepoints + sample["offset"]
+    gp_part = gp_predict(kernel, sample["z_coeff"])
+    return jax.nn.sigmoid(simple_part + gp_part)
+
+
+# %%
+fig, axs = plt.subplots(1, 2, figsize=(2 * 4, 3), dpi=150)
+
+ax = axs[1]
+ax.plot(timepoints, abundances, c="darkblue", alpha=0.5, linestyle="--")
+ax.plot(timepoints, abundances_simple, c="maroon", alpha=0.5, linestyle="--")
+ax.scatter(t_obs, y_obs, c="k", s=3)
+
+for i in indices:
+    sample = jax.tree.map(lambda x: x[i], samples)
+    ax.plot(timepoints, predict_from_sample(sample), c="black", alpha=0.05)
+
+ax.axvspan(last_observation * 1.001, 1.0, alpha=0.1, color="grey")
+ax.set_xlabel("Time")
+ax.set_ylabel("Abundance")
+
+for ax in axs:
+    ax.spines[["top", "right"]].set_visible(False)
 
 # %%
