@@ -298,12 +298,12 @@ def _assemble_prediction_csv(
 
     for city_index, city_name in enumerate(city_names):
         # First, add the retrodicted values
-        assert len(time_retrodict[city_index]) == y_retrodict.shape[0]
+        assert len(time_retrodict[city_index]) == y_retrodict[city_index].shape[0]
 
         for date_index, date in enumerate(time_retrodict[city_index]):
             for variant_index, variant_name in enumerate(variant_names):
                 entry = _make_prediction_csv_entry(
-                    time=start_date + pd.Timedelta(date, unit="D"),
+                    time=start_date + pd.Timedelta(float(date), unit="D"),
                     city=city_name,
                     variant=variant_name,
                     value=y_retrodict[city_index][date_index, variant_index],
@@ -317,12 +317,12 @@ def _assemble_prediction_csv(
                 entries.append(entry)
 
         # Finally, add the predicted values
-        assert len(time_predict[city_index]) == time_predict.shape[0]
+        assert len(time_predict[city_index]) == y_predict[city_index].shape[0]
 
         for date_index, date in enumerate(time_predict[city_index]):
             for variant_index, variant_name in enumerate(variant_names):
                 entry = _make_prediction_csv_entry(
-                    time=start_date + pd.Timedelta(date, unit="D"),
+                    time=start_date + pd.Timedelta(float(date), unit="D"),
                     city=city_name,
                     variant=variant_name,
                     value=y_predict[city_index][date_index, variant_index],
