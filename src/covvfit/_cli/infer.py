@@ -261,6 +261,79 @@ class Config(pydantic.BaseModel):
     )
 
 
+def _make_prediction_csv_entry(
+    *,
+    time,
+    city,
+    variant,
+    value,
+    lower_ci,
+    upper_ci,
+) -> dict:
+    return {
+        "date": time,
+        "location": city,
+        "variant": variant,
+        "value": value,
+        "lower_ci": lower_ci,
+        "upper_ci": upper_ci,
+    }
+
+
+def _assemble_prediction_csv(
+    *,
+    time_retrodict: list,
+    time_predict: list,
+    y_predict: list,
+    y_predict_ci: list,
+    y_retrodict: list,
+    y_retrodict_ci: list,
+    start_date: list,
+    variant_names: list[str],
+    city_names: list[str],
+) -> pd.DataFrame:
+    """Assembles data used internally into a CSV
+    with predictions for each city."""
+    entries = []
+
+    for city_index, city_name in enumerate(city_names):
+        # First, add the retrodicted values
+        assert len(time_retrodict[city_index]) == y_retrodict.shape[0]
+
+        for date_index, date in enumerate(time_retrodict[city_index]):
+            for variant_index, variant_name in enumerate(variant_names):
+                entry = _make_prediction_csv_entry(
+                    time=start_date + pd.Timedelta(date, unit="D"),
+                    city=city_name,
+                    variant=variant_name,
+                    value=y_retrodict[city_index][date_index, variant_index],
+                    lower_ci=y_retrodict_ci[city_index].lower[
+                        date_index, variant_index
+                    ],
+                    upper_ci=y_retrodict_ci[city_index].upper[
+                        date_index, variant_index
+                    ],
+                )
+                entries.append(entry)
+
+        # Finally, add the predicted values
+        assert len(time_predict[city_index]) == time_predict.shape[0]
+
+        for date_index, date in enumerate(time_predict[city_index]):
+            for variant_index, variant_name in enumerate(variant_names):
+                entry = _make_prediction_csv_entry(
+                    time=start_date + pd.Timedelta(date, unit="D"),
+                    city=city_name,
+                    variant=variant_name,
+                    value=y_predict[city_index][date_index, variant_index],
+                    lower_ci=y_predict_ci[city_index].lower[date_index, variant_index],
+                    upper_ci=y_predict_ci[city_index].upper[date_index, variant_index],
+                )
+                entries.append(entry)
+
+    return pd.DataFrame(entries)
+
+
 def _parse_config(
     config_path: Optional[str],
     variants: Optional[list[str]],
@@ -642,6 +715,27 @@ def _main(
         ts=ts_pred_lst_scaled,
         covariance=covariance_scaled,
     )
+
+    df_predictions = _assemble_prediction_csv(
+        # retrodictions (fit to the observed data)
+        time_retrodict=ts_lst,
+        y_retrodict=ys_fitted,
+        y_retrodict_ci=ys_fitted_confint,
+        # predictions
+        time_predict=ts_pred_lst,
+        y_predict=ys_pred,
+        y_predict_ci=ys_pred_confint,
+        # auxiliary information needed
+        start_date=start_date,
+        city_names=cities,
+        variant_names=variants_effective,
+    )
+    df_predictions.to_csv(
+        output / "predictions.csv",
+        sep=config.analysis.data_separator,
+        index=False,
+    )
+    del df_predictions
 
     # Output pairwise fitness advantages
 
