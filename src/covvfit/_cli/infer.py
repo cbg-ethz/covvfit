@@ -1,4 +1,5 @@
 """Script running Covvfit inference on the data."""
+
 import warnings
 from pathlib import Path
 from typing import Annotated, NamedTuple, Optional
@@ -259,6 +260,135 @@ class Config(pydantic.BaseModel):
     analysis: AnalysisSettings = pydantic.Field(
         default_factory=AnalysisSettings, help="Analysis settings."
     )
+
+
+def _make_prediction_csv_entry(
+    *,
+    time,
+    city,
+    variant,
+    value,
+    label,
+) -> dict:
+    return {
+        "date": time,
+        "location": city,
+        "variant": variant,
+        "value": value,
+        "label": label,
+    }
+
+
+def _assemble_prediction_csv(
+    *,
+    time_observed: list,
+    y_observed: list,
+    time_retrodict: list,
+    time_predict: list,
+    y_predict: list,
+    y_predict_ci: list,
+    y_retrodict: list,
+    y_retrodict_ci: list,
+    start_date: list,
+    variant_names: list[str],
+    city_names: list[str],
+) -> pd.DataFrame:
+    """Assembles data used internally into a CSV
+    with predictions for each city."""
+    entries = []
+
+    for city_index, city_name in enumerate(city_names):
+        # First, add the observed data
+        assert len(time_observed[city_index]) == y_observed[city_index].shape[0]
+
+        for date_index, date in enumerate(time_observed[city_index]):
+            for variant_index, variant_name in enumerate(variant_names):
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_observed[city_index][date_index, variant_index],
+                        label="observed_value",
+                    )
+                )
+        # Then, add the retrodicted values
+        assert len(time_retrodict[city_index]) == y_retrodict[city_index].shape[0]
+
+        for date_index, date in enumerate(time_retrodict[city_index]):
+            for variant_index, variant_name in enumerate(variant_names):
+                # Add the fitted value
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_retrodict[city_index][date_index, variant_index],
+                        label="fitted_value",
+                    )
+                )
+                # Add the lower confidence interval
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_retrodict_ci[city_index].lower[
+                            date_index, variant_index
+                        ],
+                        label="fitted_lower_ci",
+                    )
+                )
+                # Add the upper confidence interval
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_retrodict_ci[city_index].upper[
+                            date_index, variant_index
+                        ],
+                        label="fitted_upper_ci",
+                    )
+                )
+
+        # Finally, add the predicted values
+        assert len(time_predict[city_index]) == y_predict[city_index].shape[0]
+
+        for date_index, date in enumerate(time_predict[city_index]):
+            for variant_index, variant_name in enumerate(variant_names):
+                # Add the value
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_predict[city_index][date_index, variant_index],
+                        label="predicted_value",
+                    )
+                )
+                # Add the lower confidence interval
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_predict_ci[city_index].lower[date_index, variant_index],
+                        label="predicted_lower_ci",
+                    )
+                )
+                # Add the upper confidence interval
+                entries.append(
+                    _make_prediction_csv_entry(
+                        time=start_date + pd.Timedelta(float(date), unit="D"),
+                        city=city_name,
+                        variant=variant_name,
+                        value=y_predict_ci[city_index].upper[date_index, variant_index],
+                        label="predicted_upper_ci",
+                    )
+                )
+
+    return pd.DataFrame(entries)
 
 
 def _parse_config(
@@ -642,6 +772,33 @@ def _main(
         ts=ts_pred_lst_scaled,
         covariance=covariance_scaled,
     )
+
+    df_predictions = _assemble_prediction_csv(
+        # observed data
+        time_observed=ts_lst,
+        y_observed=ys_effective,
+        # retrodictions (fit to the observed data)
+        time_retrodict=ts_lst,
+        y_retrodict=ys_fitted,
+        y_retrodict_ci=ys_fitted_confint,
+        # predictions
+        time_predict=ts_pred_lst,
+        y_predict=ys_pred,
+        y_predict_ci=ys_pred_confint,
+        # auxiliary information needed
+        start_date=start_date,
+        city_names=cities,
+        variant_names=variants_effective,
+    )
+    df_predictions.sort_values(
+        by=["location", "date", "variant", "label"], inplace=True
+    )
+    df_predictions.to_csv(
+        output / "predictions.csv",
+        sep=config.analysis.data_separator,
+        index=False,
+    )
+    del df_predictions
 
     # Output pairwise fitness advantages
 
