@@ -1,4 +1,5 @@
 """Script running Covvfit inference on the data."""
+
 import warnings
 from pathlib import Path
 from typing import Annotated, NamedTuple, Optional
@@ -267,7 +268,7 @@ def _make_prediction_csv_entry(
     city,
     variant,
     value,
-    label, 
+    label,
 ) -> dict:
     return {
         "date": time,
@@ -372,9 +373,7 @@ def _assemble_prediction_csv(
                         time=start_date + pd.Timedelta(float(date), unit="D"),
                         city=city_name,
                         variant=variant_name,
-                        value=y_predict_ci[city_index].lower[
-                            date_index, variant_index
-                        ],
+                        value=y_predict_ci[city_index].lower[date_index, variant_index],
                         label="predicted_lower_ci",
                     )
                 )
@@ -384,9 +383,7 @@ def _assemble_prediction_csv(
                         time=start_date + pd.Timedelta(float(date), unit="D"),
                         city=city_name,
                         variant=variant_name,
-                        value=y_predict_ci[city_index].upper[
-                            date_index, variant_index
-                        ],
+                        value=y_predict_ci[city_index].upper[date_index, variant_index],
                         label="predicted_upper_ci",
                     )
                 )
