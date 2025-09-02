@@ -85,6 +85,44 @@ lollipop deconvolute $ldata/tallymut.tsv \
     --n-cores=2
 ```
 
-## Run *CovvFit* 
+# Run *CovvFit* 
 
-You are ready to use *Covvfit* and can proceed to the tutorial [here](../cli.md).  
+If you followed the installation guide [here](../installation.md), you are ready to use *Covvfit*. You can have a look at the tutorial [here](../cli.md).  
+
+## Prepare parameters
+In the example below, we are looking at tracking the variants KP.2, KP.3, XEC, LP.8, NB.1.8.1 and XFG. We will prepare a config yaml before running:
+
+```bash
+cat << EOF > covvfit_config.yaml
+variants:
+  - KP.2
+  - KP.3
+  - XEC
+  - LP.8
+  - NB.1.8.1
+  - XFG
+plot:
+  dimensions:
+    right: 1.2
+  time_spacing: 3
+  variant_colors:
+    JN.1: '#00E9FF' 
+    KP.2: '#7A5B58' 
+    KP.3: '#3A38F3'
+    XEC: '#6C3072'  
+    LP.8: '#379E33'
+    NB.1.8.1: '#BDC94D'  
+    XFG: '#9E7A29'  
+    undetermined: '#969696'
+EOF
+```
+
+## Run *CovvFit* on *LolliPop* output
+
+Run on the last 365 days of data, and provide a 90 days horizon forecast. 
+
+```bash
+covvfit infer -i deconvolved.csv -o output -c covvfit_config.yaml --max-days 365 --horizon 90
+```
+
+After running we can find the results in the _output_ folder, including the figures together with the _pairwise_fitnesses.csv_. 
