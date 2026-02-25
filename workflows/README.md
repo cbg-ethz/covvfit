@@ -1,12 +1,18 @@
 # Workflows
 
 This directory contains Snakemake workflows.
-Snakemake can be added to an existing Micromamba environment by using
+
+## Benchmark on simulated data
+
+Workflow to simulate variant competition data and benchmark Covvfit
+across missingness/sample-size settings:
 
 ```bash
-$ micromamba install snakemake -c bioconda -c conda-forge
+$ snakemake -s workflows/simulated_covvfit/simulated_covvfit.smk --cores 4
 ```
 
+See [workflows/simulated_covvfit/README.md](workflows/simulated_covvfit/README.md)
+for outputs and configuration details.
 
 
 ## Assessing bootstrap confidence intervals

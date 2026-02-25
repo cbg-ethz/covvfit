@@ -1,0 +1,54 @@
+output_dir: "generated/simulated_covvfit"
+
+grid:
+  missing_rate:
+    - 0.05
+    - 0.25
+    - 0.50
+    - 0.75
+  sample_size:
+    - 20
+    - 50
+    - 100
+
+simulation:
+  seed: 20260225
+  n_cities: 4
+  city_names:
+    - "City 1"
+    - "City 2"
+    - "City 3"
+    - "City 4"
+  variant_names:
+    - "V1"
+    - "V2"
+    - "V3"
+    - "V4"
+  growth_rates:
+    - 0.0
+    - 1.0
+    - 2.2
+    - 3.4
+  midpoints:
+    - [-1.05, -0.10, 0.45, 0.95]
+    - [-1.20, -0.25, 0.35, 0.85]
+    - [-1.10, -0.05, 0.55, 1.00]
+    - [-0.95, 0.00, 0.50, 0.90]
+  n_observations:
+    - 55
+    - 48
+    - 44
+    - 52
+  time0: 0.0
+  time1: 1.0
+  date_origin: "2024-01-01"
+  min_observed_per_city: 8
+
+inference:
+  n_starts: 10
+  maxiter: 10000
+
+plotting:
+  subset_n_missing_rates: 4
+  subset_n_sample_sizes: 3
+  jpeg_dpi: 400
