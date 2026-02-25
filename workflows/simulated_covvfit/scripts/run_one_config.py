@@ -88,12 +88,20 @@ def _safe_corr(x: pd.Series, y: pd.Series) -> float:
 
 
 cfg = snakemake.config
-sim_cfg = cfg["simulation"]
 inf_cfg = cfg["inference"]
 wildcards = snakemake.wildcards
 
 mvalue = float(wildcards.mvalue)
 sample_size = int(wildcards.depth)
+scenario = str(getattr(wildcards, "scenario", "default"))
+all_scenarios = cfg.get("simulation_scenarios")
+if all_scenarios is None:
+    all_scenarios = {"default": cfg["simulation"]}
+if scenario not in all_scenarios:
+    raise ValueError(
+        f"Unknown scenario '{scenario}'. Available: {sorted(all_scenarios)}"
+    )
+sim_cfg = all_scenarios[scenario]
 
 n_cities = int(sim_cfg["n_cities"])
 city_names = sim_cfg["city_names"]
@@ -124,7 +132,8 @@ settings = logistic.SimulationSettings(
 )
 
 seed_base = int(sim_cfg["seed"])
-seed = seed_base + int(round(mvalue * 10_000)) + sample_size * 100_000
+scenario_offset = sum(ord(c) for c in scenario) * 1000
+seed = seed_base + scenario_offset + int(round(mvalue * 10_000)) + sample_size * 100_000
 rng = np.random.default_rng(seed)
 
 ts_full: list[np.ndarray] = []
@@ -157,16 +166,6 @@ for city_idx in range(n_cities):
     ys_observed.append(ys_obs_city[mask])
     ns_observed.append(np.full(mask.sum(), sample_size, dtype=float))
 
-fit_unweighted = _fit_covvfit(
-    ts_observed=ts_observed,
-    ys_observed=ys_observed,
-    ts_predict=ts_full,
-    n_variants=len(variant_names),
-    ns=1.0,
-    n_starts=int(inf_cfg["n_starts"]),
-    maxiter=int(inf_cfg["maxiter"]),
-    random_seed=seed + 11,
-)
 fit_weighted = _fit_covvfit(
     ts_observed=ts_observed,
     ys_observed=ys_observed,
@@ -175,9 +174,8 @@ fit_weighted = _fit_covvfit(
     ns=[jnp.asarray(x) for x in ns_observed],
     n_starts=int(inf_cfg["n_starts"]),
     maxiter=int(inf_cfg["maxiter"]),
-    random_seed=seed + 29,
+    random_seed=seed + 11,
 )
-pred_unweighted = fit_unweighted["predictions"]
 pred_weighted = fit_weighted["predictions"]
 
 true_relative_growths = np.asarray(growth_rates, dtype=float)[1:] - float(
@@ -187,12 +185,9 @@ advantage_data = {}
 for i, variant in enumerate(variant_names[1:]):
     advantage_data[variant] = {
         "true": float(true_relative_growths[i]),
-        "est_ns1": float(np.asarray(fit_unweighted["relative_growths"])[i]),
-        "low_ns1": float(np.asarray(fit_unweighted["ci_low"])[i]),
-        "high_ns1": float(np.asarray(fit_unweighted["ci_high"])[i]),
-        "est_nsn": float(np.asarray(fit_weighted["relative_growths"])[i]),
-        "low_nsn": float(np.asarray(fit_weighted["ci_low"])[i]),
-        "high_nsn": float(np.asarray(fit_weighted["ci_high"])[i]),
+        "estimate": float(np.asarray(fit_weighted["relative_growths"])[i]),
+        "low": float(np.asarray(fit_weighted["ci_low"])[i]),
+        "high": float(np.asarray(fit_weighted["ci_high"])[i]),
     }
 
 # Cities can have different numbers of sampled timepoints.
@@ -226,8 +221,7 @@ for city_idx, city_name in enumerate(city_names):
                     "city": city_name,
                     "variant": variant,
                     "ground": float(ys_true_city[t_idx, variant_idx]),
-                    "estimate": float(pred_unweighted[city_idx][t_idx, variant_idx]),
-                    "estimate2": float(pred_weighted[city_idx][t_idx, variant_idx]),
+                    "prediction": float(pred_weighted[city_idx][t_idx, variant_idx]),
                     "observed": (
                         float(ys_obs_city[t_idx, variant_idx])
                         if bool(mask_city[t_idx])
@@ -237,40 +231,22 @@ for city_idx, city_name in enumerate(city_names):
                     "mval_day": float(mval_day[t_idx]),
                     "mval": float(mvalue),
                     "bw": float(sample_size),
+                    "scenario": scenario,
                     "reference_variant": variant_names[0],
                     "adv_variant": variant if variant_idx > 0 else np.nan,
                     "true_relative_growth": (
                         advantage_data[variant]["true"] if variant_idx > 0 else np.nan
                     ),
-                    "estimated_relative_growth_ns1": (
-                        advantage_data[variant]["est_ns1"]
+                    "estimated_relative_growth": (
+                        advantage_data[variant]["estimate"]
                         if variant_idx > 0
                         else np.nan
                     ),
-                    "ci_low_ns1": (
-                        advantage_data[variant]["low_ns1"]
-                        if variant_idx > 0
-                        else np.nan
+                    "ci_low": (
+                        advantage_data[variant]["low"] if variant_idx > 0 else np.nan
                     ),
-                    "ci_high_ns1": (
-                        advantage_data[variant]["high_ns1"]
-                        if variant_idx > 0
-                        else np.nan
-                    ),
-                    "estimated_relative_growth_nsn": (
-                        advantage_data[variant]["est_nsn"]
-                        if variant_idx > 0
-                        else np.nan
-                    ),
-                    "ci_low_nsn": (
-                        advantage_data[variant]["low_nsn"]
-                        if variant_idx > 0
-                        else np.nan
-                    ),
-                    "ci_high_nsn": (
-                        advantage_data[variant]["high_nsn"]
-                        if variant_idx > 0
-                        else np.nan
+                    "ci_high": (
+                        advantage_data[variant]["high"] if variant_idx > 0 else np.nan
                     ),
                 }
             )
@@ -278,10 +254,8 @@ for city_idx, city_name in enumerate(city_names):
 out_df = pd.DataFrame.from_records(records)
 
 # Store per-config global fit quality to simplify downstream plotting.
-cor1 = _safe_corr(out_df["estimate"], out_df["ground"])
-cor2 = _safe_corr(out_df["estimate2"], out_df["ground"])
-out_df["cor"] = cor1
-out_df["cor2"] = cor2
+cor = _safe_corr(out_df["prediction"], out_df["ground"])
+out_df["cor"] = cor
 
 out_path = Path(str(snakemake.output[0]))
 out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -3,6 +3,10 @@
 This Snakemake workflow benchmarks Covvfit on synthetic logistic-competition data
 over a grid of missing-value rates and multinomial sample sizes.
 
+It runs two built-in scenarios:
+- `baseline`
+- `pronounced_takeover` (two early competitors, then two faster variants taking over mid-time)
+
 Run from the repository root:
 
 ```bash
@@ -17,7 +21,10 @@ snakemake -s workflows/simulated_covvfit/simulated_covvfit.smk \
   --cores 4
 ```
 
-Outputs are written to `generated/simulated_covvfit/`:
+Outputs are written to scenario-specific folders in `generated/simulated_covvfit/`:
+
+- `generated/simulated_covvfit/baseline/...`
+- `generated/simulated_covvfit/pronounced_takeover/...`
 
 - `final_results.csv`
 - `plots/sim_full.pdf`
@@ -26,3 +33,4 @@ Outputs are written to `generated/simulated_covvfit/`:
 - `plots/missingness_panel.pdf`
 - `plots/r2_heatmaps.pdf`
 - `plots/fitness_advantages_panel.pdf`
+- `plots/single_config_by_city.pdf`
