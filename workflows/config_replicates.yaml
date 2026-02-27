@@ -1,0 +1,20 @@
+simulation:
+  directory: "voc/*.yaml"
+  variant_names: ["om2", "om5", "om275", "ombq11", "omxbb"]
+  points: 60
+  a1: [0.12, 0.2, 0.24, 0.28, 0.32]
+  m1: [1.67, 5, 10, 16.67, 20]
+  mu: 1000
+  n: 10
+  mut_rate: 0.0025
+  overdisp: 1000
+
+  seed_list: [42, 43, 44, 45, 46, 47, 48, 49, 50, 51]
+  n_timepoints_list: [10, 20, 60]
+
+  mvalue: 0.0
+  bw: 0.1
+  f_scale: 0.1
+  compute_fitness: true
+
+  output_dir: "output_replicates"
