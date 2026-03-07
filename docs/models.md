@@ -57,3 +57,8 @@ As both $y_k(t)$ and $p_k(t)$ are probability vectors, we use the quasi-multinom
 $$ q(f,b)= \sum_{k=1}^K \sum_{t=1}^T\sum_{v=1}^V y_{vk}(t) \log p_{vk}(t). $$ 
 
 We numerically optimize it to find the maximum quasi-likelihood estimate $\hat \theta = (\hat f, \hat b)$.
+
+## Beta-binomial extension (additive)
+
+The repository now also includes an additive multi-city variant beta-binomial feature implemented in dedicated modules.  
+It does not modify the existing quasi-multinomial deconvolution behavior in `covvfit._deconvolution`, and can be adopted independently.

@@ -30,3 +30,8 @@ The API is available [here](plotting.md).
 
 General numerical programming utilities.
 The API is available [here](numeric.md).
+
+## Variant beta-binomial
+
+Utilities for the new multi-city variant beta-binomial feature.
+The API is available [here](variant_beta_binomial.md).
