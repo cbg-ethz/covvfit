@@ -1,11 +1,14 @@
 """End-to-end hierarchical Bayesian inference demo for variant beta-binomial model."""
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import numpyro.optim as optim
 from covvfit._variant_beta_binomial.dispersion import (
     rho_to_log_kappa,
     transform_eta_to_rho,
@@ -13,7 +16,16 @@ from covvfit._variant_beta_binomial.dispersion import (
 from covvfit._variant_beta_binomial.growth import LinearGrowthParams
 from covvfit._variant_beta_binomial.numpyro_model import numpyro_model_hierarchical
 from covvfit._variant_beta_binomial.simulate import simulate_dataset
-from numpyro.infer import MCMC, NUTS
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO
+from numpyro.infer.autoguide import (
+    AutoBNAFNormal,
+    AutoIAFNormal,
+    AutoLowRankMultivariateNormal,
+    AutoNormal,
+)
+
+SviGuideName = Literal["lowrank", "autonormal", "iaf", "bnaf"]
+ScenarioName = Literal["baseline", "dramatic_emergence"]
 
 
 def _prepend_reference(x_rel: jax.Array) -> jax.Array:
@@ -254,13 +266,295 @@ def _plot_mutation_predictions(
     return fig
 
 
+@dataclass(frozen=True)
+class InferenceResult:
+    method: str
+    posterior: dict[str, jax.Array]
+
+
+@dataclass(frozen=True)
+class ScenarioConfig:
+    name: ScenarioName
+    description: str
+    n_cities: int
+    true_intercepts: jax.Array
+    true_slopes: jax.Array
+    A: jax.Array
+    true_eta_rho: jax.Array
+    mask_probability: float
+
+
+def _make_scenario_config(scenario: ScenarioName) -> ScenarioConfig:
+    if scenario == "baseline":
+        return ScenarioConfig(
+            name="baseline",
+            description=(
+                "Moderate growth with all variants present over time; useful for"
+                " standard recovery checks."
+            ),
+            n_cities=3,
+            true_intercepts=jnp.array(
+                [
+                    [0.0, 0.7, -0.2, 0.1],
+                    [0.0, 0.5, 0.1, -0.3],
+                    [0.0, 0.8, 0.3, -0.1],
+                ],
+                dtype=float,
+            ),
+            true_slopes=jnp.array([0.0, 0.05, -0.02, 0.03], dtype=float),
+            A=jnp.array(
+                [
+                    [1, 0, 1, 0, 1, 0],
+                    [0, 1, 1, 0, 0, 1],
+                    [1, 1, 0, 1, 0, 0],
+                    [0, 0, 1, 1, 1, 1],
+                ],
+                dtype=bool,
+            ),
+            true_eta_rho=jnp.array([-0.3, -0.1, 0.2, -0.4, 0.1, 0.0], dtype=float),
+            mask_probability=0.1,
+        )
+
+    if scenario == "dramatic_emergence":
+        return ScenarioConfig(
+            name="dramatic_emergence",
+            description=(
+                "Three-variant emergence scenario: variant 0 dominates early, then"
+                " variants 1 and 2 emerge; variant 2 becomes the final dominant"
+                " lineage."
+            ),
+            n_cities=3,
+            true_intercepts=jnp.array(
+                [
+                    [0.0, -7.0, -9.0],
+                    [0.0, -7.5, -9.5],
+                    [0.0, -6.8, -8.8],
+                ],
+                dtype=float,
+            ),
+            true_slopes=jnp.array([0.0, 0.90, 1.20], dtype=float),
+            A=jnp.array(
+                [
+                    [1, 0, 1, 0, 0],
+                    [0, 1, 1, 1, 0],
+                    [0, 0, 1, 1, 1],
+                ],
+                dtype=bool,
+            ),
+            true_eta_rho=jnp.array([-0.35, -0.15, 0.0, 0.05, 0.2], dtype=float),
+            mask_probability=0.08,
+        )
+
+    raise ValueError(f"Unsupported scenario: {scenario}")
+
+
+def _run_hmc_inference(
+    key: jax.Array,
+    data,
+    n_cities: int,
+    num_warmup: int,
+    num_posterior_samples: int,
+    target_accept_prob: float,
+) -> InferenceResult:
+    nuts = NUTS(numpyro_model_hierarchical, target_accept_prob=target_accept_prob)
+    mcmc = MCMC(
+        nuts,
+        num_warmup=num_warmup,
+        num_samples=num_posterior_samples,
+        num_chains=1,
+        progress_bar=False,
+    )
+    mcmc.run(key, data=data, n_cities=n_cities)
+    mcmc.print_summary(exclude_deterministic=False)
+    extra = mcmc.get_extra_fields()
+    if "diverging" in extra:
+        print(f"Number of divergences: {int(jnp.sum(extra['diverging']))}")
+    return InferenceResult(method="hmc", posterior=mcmc.get_samples())
+
+
+def _run_svi_inference(
+    key: jax.Array,
+    data,
+    n_cities: int,
+    num_posterior_samples: int,
+    svi_steps: int,
+    svi_lr: float,
+    svi_guide: SviGuideName,
+    svi_rank: int,
+    svi_num_flows: int,
+    svi_iaf_hidden_dims: tuple[int, ...],
+    svi_bnaf_hidden_factors: tuple[int, ...],
+    svi_restarts: int,
+) -> InferenceResult:
+    if svi_restarts < 1:
+        raise ValueError("svi_restarts must be >= 1.")
+
+    def _make_guide():
+        if svi_guide == "lowrank":
+            return AutoLowRankMultivariateNormal(
+                numpyro_model_hierarchical, rank=svi_rank
+            )
+        if svi_guide == "autonormal":
+            return AutoNormal(numpyro_model_hierarchical)
+        if svi_guide == "iaf":
+            return AutoIAFNormal(
+                numpyro_model_hierarchical,
+                num_flows=svi_num_flows,
+                hidden_dims=svi_iaf_hidden_dims,
+            )
+        if svi_guide == "bnaf":
+            return AutoBNAFNormal(
+                numpyro_model_hierarchical,
+                num_flows=svi_num_flows,
+                hidden_factors=list(svi_bnaf_hidden_factors),
+            )
+        raise ValueError(f"Unsupported SVI guide: {svi_guide}")
+
+    best_result = None
+    best_guide = None
+    best_loss = None
+    best_restart = None
+
+    for restart in range(svi_restarts):
+        key, key_restart = jax.random.split(key)
+        guide = _make_guide()
+        svi = SVI(
+            numpyro_model_hierarchical,
+            guide,
+            optim.Adam(svi_lr),
+            Trace_ELBO(),
+        )
+        try:
+            svi_result = svi.run(
+                key_restart,
+                svi_steps,
+                data=data,
+                n_cities=n_cities,
+                progress_bar=False,
+            )
+        except ValueError as exc:
+            if (
+                svi_guide == "iaf"
+                and "Hidden dimension must not be less than input dimension" in str(exc)
+            ):
+                raise ValueError(
+                    "AutoIAFNormal requires every --svi-iaf-hidden-dims entry to be >= latent dimension. "
+                    "Increase hidden dims (for example: --svi-iaf-hidden-dims 128,128)."
+                ) from exc
+            raise
+        final_loss = float(jnp.asarray(svi_result.losses)[-1])
+        if not jnp.isfinite(final_loss):
+            print(
+                f"  SVI restart {restart + 1}/{svi_restarts}: final_loss is non-finite ({final_loss}); skipping."
+            )
+            continue
+        print(
+            f"  SVI restart {restart + 1}/{svi_restarts}: final_loss={final_loss:.4f}"
+        )
+
+        if best_loss is None or final_loss < best_loss:
+            best_loss = final_loss
+            best_result = svi_result
+            best_guide = guide
+            best_restart = restart + 1
+
+    if best_result is None or best_guide is None or best_loss is None:
+        raise ValueError(
+            "All SVI restarts produced non-finite final losses. "
+            "Try lowering --svi-lr, increasing --svi-steps/restarts, "
+            "or using a more stable guide (for example --svi-guide bnaf or lowrank)."
+        )
+
+    post_key = jax.random.fold_in(key, 1)
+    posterior = best_guide.sample_posterior(
+        post_key,
+        best_result.params,
+        sample_shape=(num_posterior_samples,),
+        data=data,
+        n_cities=n_cities,
+    )
+    losses = jnp.asarray(best_result.losses)
+    print("\nSVI summary:")
+    print("  guide:", svi_guide)
+    if svi_guide == "lowrank":
+        print("  guide_rank:", svi_rank)
+    if svi_guide in ("iaf", "bnaf"):
+        print("  num_flows:", svi_num_flows)
+    if svi_guide == "iaf":
+        print("  iaf_hidden_dims:", svi_iaf_hidden_dims)
+    if svi_guide == "bnaf":
+        print("  bnaf_hidden_factors:", svi_bnaf_hidden_factors)
+    print("  restarts:", svi_restarts)
+    print("  selected_restart:", best_restart)
+    print("  steps:", svi_steps)
+    print("  learning_rate:", svi_lr)
+    print("  initial_loss:", float(losses[0]))
+    print("  final_loss:", float(losses[-1]))
+    return InferenceResult(method="svi", posterior=posterior)
+
+
+def _run_inference(
+    method: Literal["hmc", "svi"],
+    key: jax.Array,
+    data,
+    n_cities: int,
+    num_warmup: int,
+    num_posterior_samples: int,
+    target_accept_prob: float,
+    svi_steps: int,
+    svi_lr: float,
+    svi_guide: SviGuideName,
+    svi_rank: int,
+    svi_num_flows: int,
+    svi_iaf_hidden_dims: tuple[int, ...],
+    svi_bnaf_hidden_factors: tuple[int, ...],
+    svi_restarts: int,
+) -> InferenceResult:
+    if method == "hmc":
+        return _run_hmc_inference(
+            key=key,
+            data=data,
+            n_cities=n_cities,
+            num_warmup=num_warmup,
+            num_posterior_samples=num_posterior_samples,
+            target_accept_prob=target_accept_prob,
+        )
+    if method == "svi":
+        return _run_svi_inference(
+            key=key,
+            data=data,
+            n_cities=n_cities,
+            num_posterior_samples=num_posterior_samples,
+            svi_steps=svi_steps,
+            svi_lr=svi_lr,
+            svi_guide=svi_guide,
+            svi_rank=svi_rank,
+            svi_num_flows=svi_num_flows,
+            svi_iaf_hidden_dims=svi_iaf_hidden_dims,
+            svi_bnaf_hidden_factors=svi_bnaf_hidden_factors,
+            svi_restarts=svi_restarts,
+        )
+    raise ValueError(f"Unsupported inference method: {method}")
+
+
 def run_demo(
     seed: int = 0,
+    scenario: ScenarioName = "baseline",
     n_samples: int = 180,
     coverage_n: int = 300,
     time_max: float = 12.0,
+    inference_method: Literal["hmc", "svi"] = "hmc",
     num_warmup: int = 700,
     num_posterior_samples: int = 700,
+    target_accept_prob: float = 0.95,
+    svi_steps: int = 5000,
+    svi_lr: float = 1e-2,
+    svi_guide: SviGuideName = "lowrank",
+    svi_rank: int = 8,
+    svi_num_flows: int = 2,
+    svi_iaf_hidden_dims: tuple[int, ...] = (128, 128),
+    svi_bnaf_hidden_factors: tuple[int, ...] = (8, 8),
+    svi_restarts: int = 3,
     output_dir: str = "generated/variant_beta_binomial_demo",
     n_grid: int = 200,
     predictive_coverage: int | None = None,
@@ -268,36 +562,32 @@ def run_demo(
     show_plots: bool = False,
 ) -> None:
     key = jax.random.PRNGKey(seed)
-    key_sim, key_mcmc = jax.random.split(key)
+    key_sim, key_infer = jax.random.split(key)
 
-    C = 3
-    G = 6
-    city = jnp.repeat(jnp.arange(C, dtype=jnp.int32), n_samples // C)
-    time = jnp.tile(jnp.linspace(0.0, time_max, n_samples // C), C)
+    config = _make_scenario_config(scenario)
+    C = config.n_cities
+    if n_samples % C != 0:
+        raise ValueError(
+            f"n_samples ({n_samples}) must be divisible by number of cities ({C}) for scenario '{scenario}'."
+        )
+    samples_per_city = n_samples // C
+    city = jnp.repeat(jnp.arange(C, dtype=jnp.int32), samples_per_city)
+    time = jnp.tile(jnp.linspace(0.0, time_max, samples_per_city), C)
 
-    true_intercepts = jnp.array(
-        [
-            [0.0, 0.7, -0.2, 0.1],
-            [0.0, 0.5, 0.1, -0.3],
-            [0.0, 0.8, 0.3, -0.1],
-        ],
-        dtype=float,
-    )
-    true_slopes = jnp.array([0.0, 0.05, -0.02, 0.03], dtype=float)
-
+    true_intercepts = config.true_intercepts
+    true_slopes = config.true_slopes
+    A = config.A
+    G = A.shape[1]
     growth_true = LinearGrowthParams(intercepts=true_intercepts, slopes=true_slopes)
-
-    A = jnp.array(
-        [
-            [1, 0, 1, 0, 1, 0],
-            [0, 1, 1, 0, 0, 1],
-            [1, 1, 0, 1, 0, 0],
-            [0, 0, 1, 1, 1, 1],
-        ],
-        dtype=bool,
-    )
     coverage = jnp.full((n_samples, G), coverage_n, dtype=jnp.int32)
-    true_eta_rho = jnp.array([-0.3, -0.1, 0.2, -0.4, 0.1, 0.0], dtype=float)
+    true_eta_rho = config.true_eta_rho
+
+    pi_start = jax.nn.softmax(true_intercepts[0] + true_slopes * 0.0, axis=-1)
+    pi_end = jax.nn.softmax(true_intercepts[0] + true_slopes * time_max, axis=-1)
+    print(f"Scenario: {config.name}")
+    print(config.description)
+    print("City 0 variant prevalence at t=0:", pi_start)
+    print(f"City 0 variant prevalence at t={time_max}:", pi_end)
 
     sim = simulate_dataset(
         key=key_sim,
@@ -307,21 +597,28 @@ def run_demo(
         city=city,
         time=time,
         coverage=coverage,
-        mask_probability=0.1,
+        mask_probability=config.mask_probability,
     )
 
-    nuts = NUTS(numpyro_model_hierarchical, target_accept_prob=0.95)
-    mcmc = MCMC(
-        nuts,
+    inference_result = _run_inference(
+        method=inference_method,
+        key=key_infer,
+        data=sim.data,
+        n_cities=C,
         num_warmup=num_warmup,
-        num_samples=num_posterior_samples,
-        num_chains=1,
-        progress_bar=False,
+        num_posterior_samples=num_posterior_samples,
+        target_accept_prob=target_accept_prob,
+        svi_steps=svi_steps,
+        svi_lr=svi_lr,
+        svi_guide=svi_guide,
+        svi_rank=svi_rank,
+        svi_num_flows=svi_num_flows,
+        svi_iaf_hidden_dims=svi_iaf_hidden_dims,
+        svi_bnaf_hidden_factors=svi_bnaf_hidden_factors,
+        svi_restarts=svi_restarts,
     )
-    mcmc.run(key_mcmc, data=sim.data, n_cities=C)
-    mcmc.print_summary(exclude_deterministic=False)
-
-    posterior = mcmc.get_samples()
+    posterior = inference_result.posterior
+    print(f"\nInference method: {inference_result.method.upper()}")
     slopes, intercepts = _posterior_growth_samples(posterior)
     eta_rho_post = (
         posterior["eta_loc"][:, None]
@@ -419,10 +716,31 @@ def run_demo(
 
 
 def _parse_args() -> argparse.Namespace:
+    def _parse_int_list(value: str) -> tuple[int, ...]:
+        items = [item.strip() for item in value.split(",") if item.strip()]
+        if not items:
+            raise argparse.ArgumentTypeError("Expected a comma-separated list of ints.")
+        try:
+            values = tuple(int(item) for item in items)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError(
+                "Expected a comma-separated list of ints."
+            ) from exc
+        if any(v < 1 for v in values):
+            raise argparse.ArgumentTypeError("All values must be >= 1.")
+        return values
+
     parser = argparse.ArgumentParser(
         description="Run hierarchical Bayesian inference demo for variant beta-binomial model."
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed.")
+    parser.add_argument(
+        "--scenario",
+        type=str,
+        choices=["baseline", "dramatic_emergence"],
+        default="baseline",
+        help="Simulation preset. Use dramatic_emergence for sharp takeover dynamics.",
+    )
     parser.add_argument(
         "--n-samples",
         type=int,
@@ -442,16 +760,78 @@ def _parse_args() -> argparse.Namespace:
         help="Maximum simulation time.",
     )
     parser.add_argument(
+        "--inference-method",
+        type=str,
+        choices=["hmc", "svi"],
+        default="hmc",
+        help="Inference backend to use.",
+    )
+    parser.add_argument(
         "--warmup",
         type=int,
         default=700,
-        help="Number of NUTS warmup steps.",
+        help="Number of NUTS warmup steps (HMC only).",
     )
     parser.add_argument(
         "--samples",
         type=int,
         default=700,
-        help="Number of posterior samples.",
+        help="Number of posterior samples to draw (HMC or guide posterior samples for SVI).",
+    )
+    parser.add_argument(
+        "--target-accept-prob",
+        type=float,
+        default=0.95,
+        help="NUTS target acceptance probability (HMC only).",
+    )
+    parser.add_argument(
+        "--svi-steps",
+        type=int,
+        default=5000,
+        help="Number of optimization steps for SVI.",
+    )
+    parser.add_argument(
+        "--svi-lr",
+        type=float,
+        default=1e-2,
+        help="Learning rate for SVI optimizer.",
+    )
+    parser.add_argument(
+        "--svi-guide",
+        type=str,
+        choices=["lowrank", "autonormal", "iaf", "bnaf"],
+        default="lowrank",
+        help="SVI guide family (NumPyro autoguides only; iaf is more fragile).",
+    )
+    parser.add_argument(
+        "--svi-rank",
+        type=int,
+        default=8,
+        help="Rank for low-rank SVI guide (used when --svi-guide=lowrank).",
+    )
+    parser.add_argument(
+        "--svi-num-flows",
+        type=int,
+        default=2,
+        help="Number of flow transforms (used with --svi-guide=iaf/bnaf).",
+    )
+    parser.add_argument(
+        "--svi-iaf-hidden-dims",
+        type=_parse_int_list,
+        default=(128, 128),
+        help="Comma-separated hidden dimensions for AutoIAFNormal (e.g. 128,128).",
+    )
+    parser.add_argument(
+        "--svi-bnaf-hidden-factors",
+        type=_parse_int_list,
+        default=(8, 8),
+        help="Comma-separated hidden factors for AutoBNAFNormal (e.g. 8,8).",
+    )
+    parser.add_argument(
+        "--svi-restarts",
+        type=int,
+        default=3,
+        help="Number of SVI restarts; best final ELBO is selected.",
     )
     parser.add_argument(
         "--output-dir",
@@ -489,11 +869,22 @@ if __name__ == "__main__":
     args = _parse_args()
     run_demo(
         seed=args.seed,
+        scenario=args.scenario,
         n_samples=args.n_samples,
         coverage_n=args.coverage,
         time_max=args.time_max,
+        inference_method=args.inference_method,
         num_warmup=args.warmup,
         num_posterior_samples=args.samples,
+        target_accept_prob=args.target_accept_prob,
+        svi_steps=args.svi_steps,
+        svi_lr=args.svi_lr,
+        svi_guide=args.svi_guide,
+        svi_rank=args.svi_rank,
+        svi_num_flows=args.svi_num_flows,
+        svi_iaf_hidden_dims=args.svi_iaf_hidden_dims,
+        svi_bnaf_hidden_factors=args.svi_bnaf_hidden_factors,
+        svi_restarts=args.svi_restarts,
         output_dir=args.output_dir,
         n_grid=args.n_grid,
         predictive_coverage=args.predictive_coverage,

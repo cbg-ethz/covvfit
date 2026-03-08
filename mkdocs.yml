@@ -43,6 +43,7 @@ nav:
   - Overview: index.md
   - Command line workflow: cli.md
   - Hierarchical Bayesian example: variant_beta_binomial_example.md
+  - Variational inference guidelines: variational_inference_guidelines.md
   - API Reference: api/index.md
   - Statistical models: models.md
   - For developers: developers.md
