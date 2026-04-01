@@ -21,7 +21,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run black formatting check
-        uses: psf/black@23.12.1
+        uses: psf/black@26.3.1
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v6
         with:
