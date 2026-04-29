@@ -44,4 +44,5 @@ In this manner, other users can also benefit from your insights.
 
 Yes! The reference for this tool is:
 
-> David Dreifuss, Paweł Piotr Czyż, Niko Beerenwinkel. *Learning and forecasting selection dynamics of SARS-CoV-2 variants from wastewater sequencing data using Covvfit*. medRxiv 2025.03.25.25324639; doi: [https://doi.org/10.1101/2025.03.25.25324639](https://doi.org/10.1101/2025.03.25.25324639)
+David Dreifuss, Paweł Czyż, Niko Beerenwinkel, *Learning and forecasting selection dynamics of SARS-CoV-2 variants from wastewater sequencing data using Covvfit*, Water Research, 2026, doi: [https://doi.org/10.1016/j.watres.2026.126018](https://doi.org/10.1016/j.watres.2026.126018).
+
