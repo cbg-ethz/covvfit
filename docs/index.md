@@ -14,6 +14,8 @@ $ covvfit check
 
 For an example **how to analyze the data** using the provided command line tool, see [this tutorial](./cli.md).
 
+For an end-to-end hierarchical Bayesian example of the new variant beta-binomial model, see [this guide](./variant_beta_binomial_example.md).
+
 For more detailed installation instructions, including troubleshooting, see the [installation guide](./installation.md).
 
 
